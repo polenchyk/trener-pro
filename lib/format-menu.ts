@@ -3,30 +3,30 @@ import {
   DayMenu,
   GOAL_EMOJI,
   GOAL_LABELS,
-  MEAL_LABELS,
-  MealKey,
   WEEK_DAYS,
   WeekDay,
   WeeklyMenu,
 } from "./types";
+import { computeDayTotals, formatDishMacros, getMealsFromDay } from "./menu-utils";
 
 const DIVIDER = "━━━━━━━━━━━━━━━━";
 const SIGNATURE = "З турботою про твою форму, твій тренер! 💪🏼";
 
-const MEAL_KEYS: MealKey[] = ["breakfast", "lunch", "dinner"];
-
 function dayLines(day: WeekDay, menu: DayMenu): string[] {
+  const totals = computeDayTotals(menu);
   const lines: string[] = [];
-  lines.push(`📅 ${day.toUpperCase()} — ~${menu.totalCalories} ккал`);
+  lines.push(`📅 ${day.toUpperCase()} — ~${totals.totalCalories} ккал`);
   lines.push(
-    `🥩 ${menu.macros.protein} г  |  🥑 ${menu.macros.fat} г  |  🍞 ${menu.macros.carbs} г`
+    `🥩 ${totals.macros.protein} г  |  🥑 ${totals.macros.fat} г  |  🍞 ${totals.macros.carbs} г`
   );
-  for (const key of MEAL_KEYS) {
-    const { name, emoji } = MEAL_LABELS[key];
+
+  for (const meal of getMealsFromDay(menu)) {
     lines.push("");
-    lines.push(`${emoji} ${name}:`);
-    for (const dish of menu[key]) {
-      lines.push(`• ${dish.title} — ${dish.portion} (${dish.calories} ккал)`);
+    lines.push(`${meal.label.emoji} ${meal.label.name}:`);
+    for (const dish of meal.dishes) {
+      lines.push(
+        `• ${dish.title} — ${dish.portion} (${dish.calories} ккал, ${formatDishMacros(dish)})`
+      );
     }
   }
   return lines;

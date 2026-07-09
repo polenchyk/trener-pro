@@ -125,15 +125,22 @@ export interface MenuDish {
   /** Наприклад: "150 г" або "1 склянка" */
   portion: string;
   calories: number;
+  /** Білки, г */
+  protein: number;
+  /** Жири, г */
+  fat: number;
+  /** Вуглеводи, г */
+  carbs: number;
 }
 
-/** Меню на один день тижня */
+/** Меню на один день тижня (може містити додаткові прийоми: snack, snack_1, Перекус тощо) */
 export interface DayMenu {
   totalCalories: number;
   macros: Macros;
   breakfast: MenuDish[];
   lunch: MenuDish[];
   dinner: MenuDish[];
+  [mealKey: string]: MenuDish[] | number | Macros | undefined;
 }
 
 /** Тижневе меню, яке повертає AI у суворому JSON */

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { CHAT_SYSTEM_PROMPT } from "@/lib/prompt";
-import { extractMenuDays } from "@/lib/menu-utils";
+import { extractMenuDays, tryNormalizeDayMenu } from "@/lib/menu-utils";
 import { WEEK_DAYS, type DayMenu, type WeekDay, type WeeklyMenu } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -112,18 +112,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Пропускаємо лише валідні дні з повною структурою
     const updatedDays: Partial<Record<WeekDay, DayMenu>> = {};
     if (parsed.updatedDays && typeof parsed.updatedDays === "object") {
       for (const day of WEEK_DAYS) {
-        const dayMenu = parsed.updatedDays[day];
-        if (
-          dayMenu &&
-          Array.isArray(dayMenu.breakfast) &&
-          Array.isArray(dayMenu.lunch) &&
-          Array.isArray(dayMenu.dinner)
-        ) {
-          updatedDays[day] = dayMenu;
+        const normalized = tryNormalizeDayMenu(parsed.updatedDays[day]);
+        if (normalized) {
+          updatedDays[day] = normalized;
         }
       }
     }

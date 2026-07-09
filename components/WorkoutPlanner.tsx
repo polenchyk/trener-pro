@@ -1,13 +1,51 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BedDouble, Check, Dumbbell, Loader2, Sparkles, AlertCircle } from "lucide-react";
 import { useCoachStore } from "@/lib/store";
-import { Client, GOAL_LABELS, latestWeight, SEX_LABELS, WeekDay } from "@/lib/types";
+import { Client, GOAL_LABELS, latestWeight, SEX_LABELS, WEEK_DAYS, WeekDay } from "@/lib/types";
+import {
+  readAutoSpeakPreference,
+  useSpeech,
+  writeAutoSpeakPreference,
+} from "@/lib/useSpeech";
+import AutoSpeakToggle from "./AutoSpeakToggle";
+import SpeechButton from "./SpeechButton";
+import VoiceInputButton from "./VoiceInputButton";
 
 interface WorkoutPlannerProps {
   client: Client;
   day: WeekDay;
+}
+
+function buildWorkoutAiSummary(
+  workouts: Partial<Record<WeekDay, string>>,
+  activeDay: WeekDay
+): string {
+  const trainingDays = WEEK_DAYS.filter((d) => workouts[d]?.trim());
+  const restCount = 7 - trainingDays.length;
+  const today = workouts[activeDay]?.trim();
+
+  const lines = [
+    `План тренувань на тиждень оновлено.`,
+    `Тренувань: ${trainingDays.length}, днів відпочинку: ${restCount}.`,
+  ];
+
+  if (today) {
+    lines.push(`${activeDay}: ${today}.`);
+  } else {
+    lines.push(`${activeDay}: день відпочинку.`);
+  }
+
+  if (trainingDays.length > 0) {
+    lines.push(
+      "Розклад: " +
+        trainingDays.map((d) => `${d} — ${workouts[d]}`).join("; ") +
+        "."
+    );
+  }
+
+  return lines.join(" ");
 }
 
 export default function WorkoutPlanner({ client, day }: WorkoutPlannerProps) {
@@ -19,6 +57,25 @@ export default function WorkoutPlanner({ client, day }: WorkoutPlannerProps) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [aiResponse, setAiResponse] = useState<string | null>(null);
+  const [autoSpeak, setAutoSpeak] = useState(false);
+  const [speakingResponse, setSpeakingResponse] = useState(false);
+
+  const { speak, stop: stopSpeech, isSpeaking, isSupported: speechSupported } = useSpeech();
+
+  useEffect(() => {
+    setAutoSpeak(readAutoSpeakPreference("workout"));
+  }, []);
+
+  useEffect(() => {
+    setText(saved);
+  }, [saved]);
+
+  useEffect(() => {
+    stopSpeech();
+    setSpeakingResponse(false);
+    setAiResponse(null);
+  }, [day, stopSpeech]);
 
   const isRestDay = !saved;
   const isDirty = text.trim() !== saved;
@@ -30,9 +87,27 @@ export default function WorkoutPlanner({ client, day }: WorkoutPlannerProps) {
     setTimeout(() => setSavedFlash(false), 2000);
   };
 
+  const handleAutoSpeakChange = (enabled: boolean) => {
+    setAutoSpeak(enabled);
+    writeAutoSpeakPreference("workout", enabled);
+  };
+
+  const handleSpeakResponse = () => {
+    if (!aiResponse) return;
+    if (speakingResponse && isSpeaking) {
+      stopSpeech();
+      setSpeakingResponse(false);
+      return;
+    }
+    setSpeakingResponse(true);
+    speak(aiResponse, () => setSpeakingResponse(false));
+  };
+
   const generateWeek = async () => {
     setGenerating(true);
     setError(null);
+    stopSpeech();
+    setSpeakingResponse(false);
     try {
       const res = await fetch("/api/generate-workout", {
         method: "POST",
@@ -54,6 +129,13 @@ export default function WorkoutPlanner({ client, day }: WorkoutPlannerProps) {
       const workouts = data.workouts as Partial<Record<WeekDay, string>>;
       updateClient(client.id, { weeklyWorkouts: workouts });
       setText(workouts[day] ?? "");
+
+      const summary = buildWorkoutAiSummary(workouts, day);
+      setAiResponse(summary);
+      if (autoSpeak) {
+        setSpeakingResponse(true);
+        speak(summary, () => setSpeakingResponse(false));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Сталася помилка. Спробуйте ще раз.");
     } finally {
@@ -81,7 +163,6 @@ export default function WorkoutPlanner({ client, day }: WorkoutPlannerProps) {
         </div>
       )}
 
-      {/* Швидке редагування тренування на день */}
       <div className="flex gap-2">
         <input
           type="text"
@@ -93,6 +174,7 @@ export default function WorkoutPlanner({ client, day }: WorkoutPlannerProps) {
           placeholder='Напр. "Ноги + прес" або "Кардіо 40 хв"'
           className="flex-1 min-w-0 rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
         />
+        <VoiceInputButton value={text} onTranscript={setText} />
         <button
           onClick={save}
           disabled={!isDirty}
@@ -107,13 +189,26 @@ export default function WorkoutPlanner({ client, day }: WorkoutPlannerProps) {
         </button>
       </div>
       <p className="text-xs text-gray-400 px-1 -mt-1">
-        Порожнє поле = день відпочинку
+        Порожнє поле = день відпочинку. Мікрофон — голосовий опис тренування.
       </p>
 
       {error && (
         <div className="flex items-start gap-2 rounded-xl bg-red-50 border border-red-100 px-3 py-2.5">
           <AlertCircle size={16} className="text-red-500 shrink-0 mt-0.5" />
           <p className="text-xs text-red-700">{error}</p>
+        </div>
+      )}
+
+      {aiResponse && (
+        <div className="flex items-start gap-1 rounded-2xl border border-teal-100 bg-white px-3 py-2.5">
+          <p className="flex-1 min-w-0 text-sm text-teal-900 whitespace-pre-wrap leading-relaxed">
+            {aiResponse}
+          </p>
+          <SpeechButton
+            isActive={speakingResponse && isSpeaking}
+            isSupported={speechSupported}
+            onToggle={handleSpeakResponse}
+          />
         </div>
       )}
 
@@ -134,6 +229,13 @@ export default function WorkoutPlanner({ client, day }: WorkoutPlannerProps) {
           </>
         )}
       </button>
+
+      <AutoSpeakToggle
+        checked={autoSpeak}
+        onChange={handleAutoSpeakChange}
+        disabled={generating}
+      />
+
       {generating ? (
         <div className="flex items-center gap-2 justify-center text-xs text-gray-400">
           <BedDouble size={13} />

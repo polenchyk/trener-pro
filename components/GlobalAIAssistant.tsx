@@ -1,10 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, Loader2, Mic, MicOff, Send, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Bot, Loader2, Send, Sparkles } from "lucide-react";
 import { useCoachStore } from "@/lib/store";
 import type { GlobalAiAction } from "@/lib/global-ai";
 import type { Client } from "@/lib/types";
+import {
+  readAutoSpeakPreference,
+  useSpeech,
+  writeAutoSpeakPreference,
+} from "@/lib/useSpeech";
+import AutoSpeakToggle from "./AutoSpeakToggle";
+import SpeechButton from "./SpeechButton";
+import VoiceInputButton from "./VoiceInputButton";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -13,30 +21,6 @@ interface ChatMessage {
 }
 
 const MAX_MESSAGES = 6;
-
-interface SpeechRecognitionEventLike {
-  results: { [index: number]: { [index: number]: { transcript: string } } };
-}
-
-interface SpeechRecognitionLike {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-}
-
-function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
-  if (typeof window === "undefined") return null;
-  const w = window as Window & {
-    SpeechRecognition?: new () => SpeechRecognitionLike;
-    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
-  };
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
-}
 
 interface GlobalAIAssistantProps {
   clients: Client[];
@@ -48,14 +32,30 @@ export default function GlobalAIAssistant({ clients }: GlobalAIAssistantProps) {
 
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [listening, setListening] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [voiceSupported, setVoiceSupported] = useState(false);
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const [autoSpeak, setAutoSpeak] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<number | null>(null);
+
+  const { speak, stop: stopSpeech, isSpeaking, isSupported: speechSupported } = useSpeech();
 
   useEffect(() => {
-    setVoiceSupported(getSpeechRecognition() !== null);
+    setAutoSpeak(readAutoSpeakPreference("global"));
   }, []);
+
+  const handleSpeakMessage = (messageId: number, text: string) => {
+    if (speakingMessageId === messageId && isSpeaking) {
+      stopSpeech();
+      setSpeakingMessageId(null);
+      return;
+    }
+    setSpeakingMessageId(messageId);
+    speak(text, () => setSpeakingMessageId(null));
+  };
+
+  const handleAutoSpeakChange = (enabled: boolean) => {
+    setAutoSpeak(enabled);
+    writeAutoSpeakPreference("global", enabled);
+  };
 
   const applyActions = useCallback(
     (actions: GlobalAiAction[]) => {
@@ -84,6 +84,8 @@ export default function GlobalAIAssistant({ clients }: GlobalAIAssistantProps) {
 
     setLoading(true);
     setInput("");
+    stopSpeech();
+    setSpeakingMessageId(null);
     setMessages(historyForApi);
 
     try {
@@ -113,10 +115,21 @@ export default function GlobalAIAssistant({ clients }: GlobalAIAssistantProps) {
         applied: appliedCount > 0,
       };
 
-      setMessages((prev) => [...prev, assistantMsg].slice(-MAX_MESSAGES));
+      setMessages((prev) => {
+        const next = [...prev, assistantMsg].slice(-MAX_MESSAGES);
+        if (autoSpeak && answer.trim()) {
+          const messageId = next.length - 1;
+          window.setTimeout(() => {
+            setSpeakingMessageId(messageId);
+            speak(answer, () => setSpeakingMessageId(null));
+          }, 0);
+        }
+        return next;
+      });
     } catch (err) {
       setInput(question);
       const errText = err instanceof Error ? err.message : "Сталася помилка.";
+      const errorContent = `⚠️ ${errText}`;
       setMessages((prev) => {
         const trimmed =
           prev.length > 0 && prev[prev.length - 1].role === "user"
@@ -124,40 +137,21 @@ export default function GlobalAIAssistant({ clients }: GlobalAIAssistantProps) {
             : prev;
         const errorMsg: ChatMessage = {
           role: "assistant",
-          content: `⚠️ ${errText}`,
+          content: errorContent,
         };
-        return [...trimmed, errorMsg].slice(-MAX_MESSAGES);
+        const next = [...trimmed, errorMsg].slice(-MAX_MESSAGES);
+        if (autoSpeak) {
+          const messageId = next.length - 1;
+          window.setTimeout(() => {
+            setSpeakingMessageId(messageId);
+            speak(errorContent, () => setSpeakingMessageId(null));
+          }, 0);
+        }
+        return next;
       });
     } finally {
       setLoading(false);
     }
-  };
-
-  const toggleVoice = () => {
-    const SpeechRecognition = getSpeechRecognition();
-    if (!SpeechRecognition || loading) return;
-
-    if (listening && recognitionRef.current) {
-      recognitionRef.current.stop();
-      setListening(false);
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = "uk-UA";
-    recognition.continuous = false;
-    recognition.interimResults = false;
-
-    recognition.onresult = (event) => {
-      const transcript = event.results[0]?.[0]?.transcript?.trim();
-      if (transcript) setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
-    };
-    recognition.onerror = () => setListening(false);
-    recognition.onend = () => setListening(false);
-
-    recognitionRef.current = recognition;
-    setListening(true);
-    recognition.start();
   };
 
   return (
@@ -170,24 +164,30 @@ export default function GlobalAIAssistant({ clients }: GlobalAIAssistantProps) {
       {messages.length > 0 && (
         <div className="space-y-2 mb-3 max-h-48 overflow-y-auto">
           {messages.map((m, i) => (
-            <div
-              key={i}
-              className={`rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap leading-relaxed ${
-                m.role === "user"
-                  ? "bg-teal-600 text-white ml-8"
-                  : "bg-white border border-teal-100 text-gray-800 mr-4"
-              }`}
-            >
-              {m.role === "assistant" && (
-                <span className="inline-flex items-center gap-1 text-teal-600 mr-1.5">
-                  <Bot size={13} />
-                </span>
-              )}
-              {m.content}
-              {m.applied && (
-                <p className="text-xs text-emerald-700 font-medium mt-1.5">
-                  ✓ Зміни застосовано
-                </p>
+            <div key={i}>
+              {m.role === "user" ? (
+                <div className="rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap leading-relaxed bg-teal-600 text-white ml-8">
+                  {m.content}
+                </div>
+              ) : (
+                <div className="flex items-start gap-1 mr-4">
+                  <div className="flex-1 min-w-0 rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap leading-relaxed bg-white border border-teal-100 text-gray-800">
+                    <span className="inline-flex items-center gap-1 text-teal-600 mr-1.5">
+                      <Bot size={13} />
+                    </span>
+                    {m.content}
+                    {m.applied && (
+                      <p className="text-xs text-emerald-700 font-medium mt-1.5">
+                        ✓ Зміни застосовано
+                      </p>
+                    )}
+                  </div>
+                  <SpeechButton
+                    isActive={speakingMessageId === i && isSpeaking}
+                    isSupported={speechSupported}
+                    onToggle={() => handleSpeakMessage(i, m.content)}
+                  />
+                </div>
               )}
             </div>
           ))}
@@ -215,21 +215,11 @@ export default function GlobalAIAssistant({ clients }: GlobalAIAssistantProps) {
           disabled={loading}
           className="flex-1 min-w-0 rounded-xl border border-teal-200 bg-white px-3.5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-60"
         />
-        {voiceSupported && (
-          <button
-            type="button"
-            onClick={toggleVoice}
-            disabled={loading}
-            className={`shrink-0 w-11 h-11 rounded-xl flex items-center justify-center active:scale-95 transition-all disabled:opacity-40 ${
-              listening
-                ? "bg-red-500 text-white animate-pulse"
-                : "border border-teal-200 text-teal-700 hover:bg-teal-50"
-            }`}
-            aria-label={listening ? "Зупинити запис" : "Голосовий ввід"}
-          >
-            {listening ? <MicOff size={18} /> : <Mic size={18} />}
-          </button>
-        )}
+        <VoiceInputButton
+          value={input}
+          disabled={loading}
+          onTranscript={setInput}
+        />
         <button
           type="submit"
           disabled={loading || !input.trim()}
@@ -239,6 +229,11 @@ export default function GlobalAIAssistant({ clients }: GlobalAIAssistantProps) {
           {loading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
         </button>
       </form>
+      <AutoSpeakToggle
+        checked={autoSpeak}
+        onChange={handleAutoSpeakChange}
+        disabled={loading}
+      />
     </div>
   );
 }

@@ -34,7 +34,7 @@ interface CoachStore {
   setMenu: (clientId: string, menu: WeeklyMenu) => void;
   /** Точкове оновлення окремих днів (після AI-коригування) */
   updateMenuDays: (clientId: string, days: Partial<Record<WeekDay, DayMenu>>) => void;
-  /** Фіксує меню та згортає його */
+  /** Фіксує меню (approved: true) */
   approveMenu: (clientId: string) => void;
   clearMenu: (clientId: string) => void;
   setMenuExpanded: (clientId: string, expanded: boolean) => void;
@@ -89,7 +89,12 @@ export const useCoachStore = create<CoachStore>()(
         }),
 
       setMenu: (clientId, menu) =>
-        set((state) => ({ menus: { ...state.menus, [clientId]: menu } })),
+        set((state) => ({
+          menus: {
+            ...state.menus,
+            [clientId]: { ...menu, approved: false },
+          },
+        })),
 
       updateMenuDays: (clientId, days) =>
         set((state) => {
@@ -114,7 +119,6 @@ export const useCoachStore = create<CoachStore>()(
           if (!current) return state;
           return {
             menus: { ...state.menus, [clientId]: { ...current, approved: true } },
-            isMenuExpanded: { ...state.isMenuExpanded, [clientId]: false },
           };
         }),
 

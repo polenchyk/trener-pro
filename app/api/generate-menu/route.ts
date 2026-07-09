@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { WEEKLY_MENU_SYSTEM_PROMPT } from "@/lib/prompt";
-import { WEEK_DAYS, type WeeklyMenu } from "@/lib/types";
+import { tryNormalizeDayMenu } from "@/lib/menu-utils";
+import { WEEK_DAYS, type DayMenu, type WeeklyMenu } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -77,23 +78,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const menu = JSON.parse(raw) as WeeklyMenu;
+    const rawMenu = JSON.parse(raw) as WeeklyMenu;
 
-    const missingDays = WEEK_DAYS.filter(
-      (day) => !menu.days?.[day] || !Array.isArray(menu.days[day].breakfast)
-    );
+    const days = {} as Record<(typeof WEEK_DAYS)[number], DayMenu>;
+    const missingDays: string[] = [];
+
+    for (const day of WEEK_DAYS) {
+      const normalized = tryNormalizeDayMenu(rawMenu.days?.[day]);
+      if (normalized) {
+        days[day] = normalized;
+      } else {
+        missingDays.push(day);
+      }
+    }
+
     if (missingDays.length > 0) {
       return NextResponse.json(
         {
-          error: `AI не заповнив усі дні тижня (бракує: ${missingDays.join(", ")}). Спробуйте ще раз.`,
+          error: `AI не заповнив усі дні тижня (бракує або некоректні: ${missingDays.join(", ")}). Спробуйте ще раз.`,
         },
         { status: 502 }
       );
     }
 
-    menu.title = menu.title || "Меню на тиждень";
-    menu.tips = Array.isArray(menu.tips) ? menu.tips : [];
-    menu.approved = false;
+    const menu: WeeklyMenu = {
+      title: rawMenu.title || "Меню на тиждень",
+      days,
+      tips: Array.isArray(rawMenu.tips) ? rawMenu.tips : [],
+      approved: false,
+    };
 
     return NextResponse.json({ menu });
   } catch (err) {
