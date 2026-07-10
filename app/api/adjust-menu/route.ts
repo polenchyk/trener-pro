@@ -6,6 +6,7 @@ import {
   formatMealKeysForContext,
   isGlobalMenuInstruction,
   parseAdjustResponse,
+  resolveSnackTargetFromInstruction,
   suggestNextSnackKey,
 } from "@/lib/menu-utils";
 import { WEEK_DAYS, type WeekDay, type WeeklyMenu } from "@/lib/types";
@@ -82,6 +83,7 @@ export async function POST(request: NextRequest) {
   const history = (body.messages ?? []).slice(-6);
   const activeDayMenu = body.activeDay ? menuDays[body.activeDay] : undefined;
   const wantsSnack = /перекус|snack/i.test(instruction);
+  const snackTarget = resolveSnackTargetFromInstruction(instruction);
 
   const contextBlock = [
     `Клієнт: ${c.name}`,
@@ -94,6 +96,9 @@ export async function POST(request: NextRequest) {
       : "",
     activeDayMenu && wantsSnack
       ? `Наступний вільний ключ для нового перекусу: ${suggestNextSnackKey(activeDayMenu)}`
+      : "",
+    snackTarget
+      ? `Цільовий прийом їжі для цієї інструкції: ${snackTarget} (змінюй ВИКЛЮЧНО цей ключ, інші перекуси не чіпай).`
       : "",
     globalChange
       ? `Підказка: запит може стосуватися всього тижня — якщо тренер дає команду змінити, поверни updatedDays для ВСІХ 7 днів.`

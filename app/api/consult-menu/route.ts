@@ -6,6 +6,7 @@ import type { DayMenu, WeekDay } from "@/lib/types";
 import {
   formatMealKeysForContext,
   hasDayMenuContent,
+  resolveSnackTargetFromInstruction,
   suggestNextSnackKey,
 } from "@/lib/menu-utils";
 
@@ -72,6 +73,7 @@ export async function POST(request: NextRequest) {
   const currentDayMenu = body.currentDayMenu ?? null;
   const hasCurrentMenu = hasDayMenuContent(currentDayMenu);
   const wantsSnack = /перекус|snack/i.test(instruction);
+  const snackTarget = resolveSnackTargetFromInstruction(instruction);
 
   const contextBlock = [
     `Клієнт: ${c.name}`,
@@ -100,6 +102,9 @@ export async function POST(request: NextRequest) {
       : "",
     hasCurrentMenu && currentDayMenu && wantsSnack
       ? `Наступний вільний ключ для нового перекусу: ${suggestNextSnackKey(currentDayMenu)}`
+      : "",
+    snackTarget
+      ? `Цільовий прийом їжі: ${snackTarget} (змінюй ВИКЛЮЧНО цей ключ).`
       : "",
     hasCurrentMenu && !forceForm
       ? `ПІДКАЗКА: тренер коригує існуюче меню — поверни phase "ready" з оновленим dayMenu (повний об'єкт дня, усі ключі прийомів їжі).`

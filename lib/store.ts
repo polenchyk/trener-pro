@@ -1,10 +1,10 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { Client, DayMenu, WeekDay, WeeklyMenu } from "./types";
-import { DEFAULT_MACRO_NORMS_PER_KG, DEFAULT_TARGET_FIBER } from "./types";
+import { DEFAULT_MACRO_NORMS_PER_KG, DEFAULT_TARGET_FIBER, WEEK_DAYS } from "./types";
 import { suggestNutritionNorms } from "./macro-norms";
 import { calcMacrosFromWeight } from "./macro-utils";
-import { createEmptyWeeklyMenu } from "./menu-utils";
+import { createEmptyWeeklyMenu, normalizeDayMenu } from "./menu-utils";
 
 /** Нормалізує клієнта зі старих версій даних (міграція, бекапи) */
 function normalizeClient(raw: Client & { weight?: number }): Client {
@@ -127,7 +127,21 @@ export const useCoachStore = create<CoachStore>()(
         set((state) => ({
           menus: {
             ...state.menus,
-            [clientId]: { ...menu, approved: false },
+            [clientId]: {
+              ...menu,
+              approved: false,
+              days: Object.fromEntries(
+                WEEK_DAYS.map((d) => {
+                  const dayMenu = menu.days[d];
+                  return [
+                    d,
+                    dayMenu
+                      ? normalizeDayMenu(dayMenu)
+                      : createEmptyWeeklyMenu().days[d],
+                  ];
+                })
+              ) as Record<WeekDay, DayMenu>,
+            },
           },
         })),
 
@@ -135,13 +149,18 @@ export const useCoachStore = create<CoachStore>()(
         set((state) => {
           const current = state.menus[clientId];
           if (!current) return state;
+          const normalizedDays = Object.fromEntries(
+            Object.entries(days).map(([d, menu]) => [
+              d,
+              menu ? normalizeDayMenu(menu) : menu,
+            ])
+          ) as Partial<Record<WeekDay, DayMenu>>;
           return {
             menus: {
               ...state.menus,
               [clientId]: {
                 ...current,
-                days: { ...current.days, ...days },
-                // Після змін меню потребує повторного затвердження
+                days: { ...current.days, ...normalizedDays },
                 approved: false,
               },
             },
@@ -156,7 +175,7 @@ export const useCoachStore = create<CoachStore>()(
               ...state.menus,
               [clientId]: {
                 ...current,
-                days: { ...current.days, [day]: dayMenu },
+                days: { ...current.days, [day]: normalizeDayMenu(dayMenu) },
                 approved: false,
               },
             },
@@ -201,7 +220,7 @@ export const useCoachStore = create<CoachStore>()(
         set((state) => {
           const clientDays = { ...(state.pendingConsultMenus[clientId] ?? {}) };
           if (menu) {
-            clientDays[day] = menu;
+            clientDays[day] = normalizeDayMenu(menu);
           } else {
             delete clientDays[day];
           }

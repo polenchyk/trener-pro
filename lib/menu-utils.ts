@@ -3,6 +3,16 @@ import { MEAL_LABELS, WEEK_DAYS } from "./types";
 
 export const DAY_META_KEYS = new Set(["totalCalories", "macros", "fiber"]);
 
+/** Хронологічний порядок прийомів їжі протягом дня */
+const MEAL_TIMELINE_ORDER: Record<string, number> = {
+  breakfast: 10,
+  snack_1: 20,
+  snack: 20,
+  lunch: 30,
+  snack_2: 40,
+  dinner: 50,
+};
+
 const MEAL_KEY_ALIASES: Record<string, keyof typeof MEAL_LABELS> = {
   breakfast: "breakfast",
   сніданок: "breakfast",
@@ -73,7 +83,7 @@ function normalizeDish(d: unknown): MenuDish {
 
 /** Розподіляє day.macros по стравах пропорційно калоріям, якщо у страв немає БЖВ */
 function fillMissingDishMacros(day: DayMenu): DayMenu {
-  const result: DayMenu = { ...day };
+  const result = cloneDayMenu(day);
   const slots: { key: string; index: number }[] = [];
   let totalDishMacros = 0;
   let totalDishFiber = 0;
@@ -144,15 +154,26 @@ export function getMealKeys(day: DayMenu): string[] {
 
 function mealSortOrder(key: string): number {
   const lower = key.toLowerCase();
-  const alias = MEAL_KEY_ALIASES[lower];
-  if (alias === "breakfast") return 0;
-  if (alias === "lunch") return 10;
-  if (alias === "dinner") return 100;
-  if (/перекус|snack/i.test(lower)) {
-    if (lower === "snack") return 50;
-    const num = lower.match(/(?:snack_|перекус\s*)(\d+)/i)?.[1];
-    return 50 + (num ? parseInt(num, 10) : 1);
+  if (lower in MEAL_TIMELINE_ORDER) {
+    return MEAL_TIMELINE_ORDER[lower];
   }
+  const snackNum = lower.match(/^snack_(\d+)$/)?.[1];
+  if (snackNum) {
+    const n = parseInt(snackNum, 10);
+    if (n === 1) return 20;
+    if (n === 2) return 40;
+    return 40 + n;
+  }
+  if (/перекус/i.test(lower)) {
+    const num = lower.match(/(\d+)/)?.[1];
+    if (num === "1") return 20;
+    if (num === "2") return 40;
+    return 40 + (num ? parseInt(num, 10) : 3);
+  }
+  const alias = MEAL_KEY_ALIASES[lower];
+  if (alias === "breakfast") return 10;
+  if (alias === "lunch") return 30;
+  if (alias === "dinner") return 50;
   return 75;
 }
 
@@ -167,11 +188,66 @@ export function hasDayMenuContent(day: DayMenu | undefined | null): boolean {
 /** Наступний вільний ключ для нового перекусу */
 export function suggestNextSnackKey(day: DayMenu): string {
   const keys = new Set(getMealKeys(day).map((k) => k.toLowerCase()));
-  if (!keys.has("snack")) return "snack";
-  for (let n = 2; n <= 30; n++) {
+  const hasSnack1 = keys.has("snack_1") || keys.has("snack");
+  if (!hasSnack1) return "snack_1";
+  if (!keys.has("snack_2")) return "snack_2";
+  for (let n = 3; n <= 30; n++) {
     if (!keys.has(`snack_${n}`)) return `snack_${n}`;
   }
   return `snack_${Date.now()}`;
+}
+
+/** Визначає цільовий ключ перекусу з тексту інструкції */
+export function resolveSnackTargetFromInstruction(
+  instruction: string
+): "snack_1" | "snack_2" | null {
+  const lower = instruction.toLowerCase();
+  if (
+    /перекус\s*2|snack_2|між\s+обідом\s+та\s+вечерею|після\s+обіду|другий\s+перекус/i.test(
+      lower
+    )
+  ) {
+    return "snack_2";
+  }
+  if (
+    /перекус\s*1|snack_1|між\s+сніданком\s+та\s+обідом|після\s+сніданку|перший\s+перекус/i.test(
+      lower
+    )
+  ) {
+    return "snack_1";
+  }
+  return null;
+}
+
+/** Глибоке клонування дня меню — кожен прийом їжі та страва ізольовані */
+export function cloneDayMenu(day: DayMenu): DayMenu {
+  const result: Record<string, unknown> = {
+    totalCalories: day.totalCalories,
+    macros: { ...(day.macros ?? { protein: 0, fat: 0, carbs: 0 }) },
+    fiber: day.fiber,
+  };
+
+  for (const key of getMealKeys(day)) {
+    const source = day[key] as MenuDish[];
+    result[key] = source.map((d) => ({ ...d }));
+  }
+
+  return result as DayMenu;
+}
+
+/** Перейменовує legacy-ключ snack → snack_1 */
+function migrateLegacyMealKeys(day: DayMenu): DayMenu {
+  const record = cloneDayMenu(day) as Record<string, MenuDish[] | number | Macros | undefined>;
+  const keys = getMealKeys(day);
+  const lowerKeys = new Set(keys.map((k) => k.toLowerCase()));
+
+  if (lowerKeys.has("snack") && !lowerKeys.has("snack_1")) {
+    const snackKey = keys.find((k) => k.toLowerCase() === "snack")!;
+    record.snack_1 = [...(record[snackKey] as MenuDish[])].map((d) => ({ ...d }));
+    delete record[snackKey];
+  }
+
+  return record as DayMenu;
 }
 
 /** Список ключів прийомів їжі для контексту AI */
@@ -187,8 +263,12 @@ export function resolveMealLabel(key: string): { name: string; emoji: string } {
   const alias = MEAL_KEY_ALIASES[lower];
   if (alias) return MEAL_LABELS[alias];
 
-  if (/^snack$/i.test(lower)) {
-    return { name: "Перекус 1", emoji: "🍎" };
+  if (lower === "snack_1" || lower === "snack") {
+    return { name: "Перекус між сніданком та обідом", emoji: "🍎" };
+  }
+
+  if (lower === "snack_2") {
+    return { name: "Перекус між обідом та вечерею", emoji: "🍎" };
   }
 
   if (/^snack_(\d+)$/i.test(lower)) {
@@ -303,14 +383,15 @@ export function computeDayTotals(day: DayMenu): {
 
 /** Нормалізує страви та перераховує totalCalories / macros за день */
 export function normalizeDayMenu(day: DayMenu): DayMenu {
-  const filled = fillMissingDishMacros(day);
+  const migrated = migrateLegacyMealKeys(day);
+  const filled = fillMissingDishMacros(migrated);
   const totals = computeDayTotals(filled);
-  return {
+  return cloneDayMenu({
     ...filled,
     totalCalories: totals.totalCalories,
-    macros: totals.macros,
+    macros: { ...totals.macros },
     fiber: totals.fiber,
-  };
+  });
 }
 
 /** Форматує БЖВ однієї страви для UI / експорту */
@@ -435,20 +516,22 @@ export function isGlobalMenuInstruction(instruction: string): boolean {
   return /меню|білк|бжв|калор|макро|вуглев|жир|раціон|тижден/i.test(lower);
 }
 
-const EMPTY_DAY_MENU: DayMenu = {
-  totalCalories: 0,
-  macros: { protein: 0, fat: 0, carbs: 0 },
-  fiber: 0,
-  breakfast: [],
-  lunch: [],
-  dinner: [],
-};
+function createEmptyDayMenu(): DayMenu {
+  return {
+    totalCalories: 0,
+    macros: { protein: 0, fat: 0, carbs: 0 },
+    fiber: 0,
+    breakfast: [],
+    lunch: [],
+    dinner: [],
+  };
+}
 
 /** Порожнє тижневе меню (для збереження окремого дня з консультації) */
 export function createEmptyWeeklyMenu(): WeeklyMenu {
   const days = {} as Record<WeekDay, DayMenu>;
   for (const day of WEEK_DAYS) {
-    days[day] = { ...EMPTY_DAY_MENU };
+    days[day] = createEmptyDayMenu();
   }
   return {
     title: "Меню на тиждень",
