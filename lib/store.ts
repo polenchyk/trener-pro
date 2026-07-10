@@ -79,7 +79,8 @@ export const useCoachStore = create<CoachStore>()(
         set((state) => {
           const suggested = suggestNutritionNorms(
             data.goal,
-            data.activityLevel ?? 1.375
+            data.activityLevel ?? 1.375,
+            data.sex ?? "female"
           );
           const macroNormsPerKg = data.macroNormsPerKg ?? suggested.macroNormsPerKg;
           const targetFiber = data.targetFiber ?? suggested.targetFiber;

@@ -27,6 +27,7 @@ interface ConsultMenuBody {
     targetFiber?: number;
     calories?: number;
     notes?: string;
+    sex?: string;
   };
   activeDay: WeekDay;
   workoutForDay?: string;
@@ -77,6 +78,7 @@ export async function POST(request: NextRequest) {
 
   const contextBlock = [
     `Клієнт: ${c.name}`,
+    c.sex ? `Стать: ${c.sex}` : "",
     `Ціль: ${c.goal}`,
     c.weight ? `Вага: ${c.weight} кг` : "Вага: не вказана",
     `Норми БЖВ (г/кг): білок ${norms.protein}, жири ${norms.fat}, вуглеводи ${norms.carbs}`,
@@ -136,7 +138,7 @@ export async function POST(request: NextRequest) {
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       response_format: { type: "json_object" },
       temperature: 0.45,
-      max_tokens: 4000,
+      max_tokens: 8000,
       messages: openaiMessages,
     });
 

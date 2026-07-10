@@ -10,6 +10,7 @@ export const maxDuration = 120;
 interface GenerateMenuBody {
   name: string;
   goal: string;
+  sex?: string;
   calories: number;
   protein: number;
   fat: number;
@@ -46,6 +47,7 @@ export async function POST(request: NextRequest) {
   const userPrompt = [
     `Склади меню на 7 днів тижня для клієнта:`,
     `Ім'я: ${body.name}`,
+    body.sex ? `Стать: ${body.sex}` : "",
     `Ціль: ${body.goal}`,
     `Добова калорійність: ${body.calories} ккал`,
     `Білки: ${body.protein} г`,
@@ -105,6 +107,10 @@ export async function POST(request: NextRequest) {
       title: rawMenu.title || "Меню на тиждень",
       days,
       tips: Array.isArray(rawMenu.tips) ? rawMenu.tips : [],
+      weekly_justification:
+        typeof rawMenu.weekly_justification === "string"
+          ? rawMenu.weekly_justification.trim()
+          : undefined,
       approved: false,
     };
 

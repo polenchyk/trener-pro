@@ -1,7 +1,14 @@
 import type { DayMenu, Macros, MealSlot, MenuDish, WeekDay, WeeklyMenu } from "./types";
 import { MEAL_LABELS, WEEK_DAYS } from "./types";
 
-export const DAY_META_KEYS = new Set(["totalCalories", "macros", "fiber", "meals"]);
+export const DAY_META_KEYS = new Set([
+  "totalCalories",
+  "macros",
+  "fiber",
+  "meals",
+  "menu_justification",
+  "narrative_analysis",
+]);
 
 const LEGACY_KEY_META: Record<string, { order: number; title: string }> = {
   breakfast: { order: 10, title: "Сніданок" },
@@ -181,8 +188,17 @@ function mealEmoji(order: number): string {
   return "🍎";
 }
 
+function readMenuJustification(raw: Record<string, unknown>): string | undefined {
+  const text =
+    (typeof raw.menu_justification === "string" && raw.menu_justification.trim()) ||
+    (typeof raw.narrative_analysis === "string" && raw.narrative_analysis.trim()) ||
+    "";
+  return text || undefined;
+}
+
 /** Глибоке клонування дня меню */
 export function cloneDayMenu(day: DayMenu): DayMenu {
+  const raw = day as unknown as Record<string, unknown>;
   return {
     totalCalories: day.totalCalories,
     macros: { ...(day.macros ?? { protein: 0, fat: 0, carbs: 0 }) },
@@ -193,6 +209,7 @@ export function cloneDayMenu(day: DayMenu): DayMenu {
       order: m.order,
       dishes: m.dishes.map((d) => ({ ...d })),
     })),
+    menu_justification: readMenuJustification(raw),
   };
 }
 
@@ -419,6 +436,7 @@ export function normalizeDayMenu(day: DayMenu | Record<string, unknown>): DayMen
     macros: readDayMacros(day),
     fiber: readNum(base.fiber),
     meals,
+    menu_justification: readMenuJustification(base),
   };
 
   const filled = fillMissingDishMacros(draft);
@@ -527,7 +545,14 @@ export function normalizeWeeklyMenu(menu: WeeklyMenu): WeeklyMenu {
       days[day] = normalizeDayMenu(days[day]);
     }
   }
-  return { ...menu, days };
+  return {
+    ...menu,
+    days,
+    weekly_justification:
+      typeof menu.weekly_justification === "string"
+        ? menu.weekly_justification.trim()
+        : undefined,
+  };
 }
 
 export function tryNormalizeDayMenu(day: unknown): DayMenu | null {

@@ -20,6 +20,7 @@ import {
   DayMenu,
   GOAL_LABELS,
   MenuDish,
+  SEX_LABELS,
   WEEK_DAYS,
   WEEK_DAY_SHORT,
   WeekDay,
@@ -119,6 +120,7 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
   const clientPayload = {
     name: client.name,
     goal: GOAL_LABELS[client.goal],
+    sex: SEX_LABELS[client.sex],
     calories: client.calories,
     protein: targetMacros.protein,
     fat: targetMacros.fat,
@@ -135,8 +137,10 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
 
   const displayDay: DayMenu | undefined =
     pendingDayMenu ?? (savedDayMenu as DayMenu | undefined);
-  const dayTotals = displayDay ? computeDayTotals(normalizeDayMenu(displayDay)) : null;
-  const dayMeals = displayDay ? getMealsFromDay(normalizeDayMenu(displayDay)) : [];
+  const normalizedDisplayDay = displayDay ? normalizeDayMenu(displayDay) : null;
+  const dayTotals = normalizedDisplayDay ? computeDayTotals(normalizedDisplayDay) : null;
+  const dayMeals = normalizedDisplayDay ? getMealsFromDay(normalizedDisplayDay) : [];
+  const dayJustification = normalizedDisplayDay?.menu_justification;
 
   const applyDayMenuUpdate = (dayMenu: DayMenu, explanation: string) => {
     const normalized = normalizeDayMenu(dayMenu);
@@ -536,6 +540,17 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
                       </ul>
                     </div>
                   ))}
+
+                  {dayJustification && (
+                    <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 to-violet-50/50 px-4 py-4">
+                      <h3 className="text-sm font-semibold text-indigo-950 mb-2.5">
+                        🔬 Нутриціологічний аналіз та обґрунтування дня
+                      </h3>
+                      <p className="text-sm text-indigo-900/85 whitespace-pre-wrap leading-relaxed">
+                        {dayJustification}
+                      </p>
+                    </div>
+                  )}
                 </>
               )}
 

@@ -22,6 +22,7 @@ interface AdjustMenuBody {
   client: {
     name: string;
     goal: string;
+    sex?: string;
     calories: number;
     protein: number;
     fat: number;
@@ -87,6 +88,7 @@ export async function POST(request: NextRequest) {
 
   const contextBlock = [
     `Клієнт: ${c.name}`,
+    c.sex ? `Стать: ${c.sex}` : "",
     `Ціль: ${c.goal}`,
     `Добова калорійність: ${c.calories} ккал`,
     c.notes ? `Особливості: ${c.notes}` : "",
@@ -135,7 +137,7 @@ export async function POST(request: NextRequest) {
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       response_format: { type: "json_object" },
       temperature: 0.4,
-      max_tokens: globalChange ? 8000 : 4000,
+      max_tokens: globalChange ? 8000 : 6000,
       messages: openaiMessages,
     });
 

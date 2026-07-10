@@ -175,6 +175,8 @@ export interface DayMenu {
   /** Сума клітковини за день, г */
   fiber?: number;
   meals: MealSlot[];
+  /** Нутриціологічний аналіз та обґрунтування дня від ШІ */
+  menu_justification?: string;
 }
 
 /** Тижневе меню, яке повертає AI у суворому JSON */
@@ -182,6 +184,8 @@ export interface WeeklyMenu {
   title: string;
   days: Record<WeekDay, DayMenu>;
   tips: string[];
+  /** Загальне обґрунтування тижня (опційно) */
+  weekly_justification?: string;
   /** Тренер натиснув «Затвердити та зберегти меню» */
   approved?: boolean;
 }

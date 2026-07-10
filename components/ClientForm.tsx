@@ -87,7 +87,7 @@ export default function ClientForm({ client, onClose }: ClientFormProps) {
       skipAutoNormsOnce.current = false;
       return;
     }
-    const { macroNormsPerKg, targetFiber } = suggestNutritionNorms(goal, activityLevel);
+    const { macroNormsPerKg, targetFiber } = suggestNutritionNorms(goal, activityLevel, sex);
     setProteinPerKg(String(macroNormsPerKg.protein));
     setFatPerKg(String(macroNormsPerKg.fat));
     setCarbsPerKg(String(macroNormsPerKg.carbs));
