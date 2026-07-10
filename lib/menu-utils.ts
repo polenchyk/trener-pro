@@ -12,27 +12,103 @@ const MEAL_KEY_ALIASES: Record<string, keyof typeof MEAL_LABELS> = {
   вечеря: "dinner",
 };
 
+function readNum(value: unknown): number {
+  if (typeof value === "number" && !Number.isNaN(value)) return value;
+  if (typeof value === "string") {
+    const n = parseFloat(value.replace(",", "."));
+    if (!Number.isNaN(n)) return n;
+  }
+  return 0;
+}
+
+function readDishMacro(raw: Record<string, unknown>, ...keys: string[]): number {
+  for (const key of keys) {
+    const v = readNum(raw[key]);
+    if (v > 0) return v;
+  }
+  const nested = raw.macros;
+  if (nested && typeof nested === "object") {
+    const m = nested as Record<string, unknown>;
+    for (const key of keys) {
+      const v = readNum(m[key]);
+      if (v > 0) return v;
+    }
+  }
+  return 0;
+}
+
 function isValidDish(d: unknown): d is MenuDish {
   return (
     !!d &&
     typeof d === "object" &&
     typeof (d as MenuDish).title === "string" &&
-    typeof (d as MenuDish).calories === "number"
+    readNum((d as Record<string, unknown>).calories) > 0
   );
 }
 
-function normalizeDish(d: MenuDish): MenuDish {
+function normalizeDish(d: unknown): MenuDish {
+  const raw = (d && typeof d === "object" ? d : {}) as Record<string, unknown>;
   return {
-    title: d.title,
-    portion: d.portion ?? "",
-    calories: d.calories,
-    protein: typeof d.protein === "number" ? d.protein : 0,
-    fat: typeof d.fat === "number" ? d.fat : 0,
-    carbs: typeof d.carbs === "number" ? d.carbs : 0,
+    title: String(raw.title ?? ""),
+    portion: String(raw.portion ?? ""),
+    calories: Math.round(readNum(raw.calories)),
+    protein: Math.round(
+      readDishMacro(raw, "protein", "proteins", "білки", "білок", "b")
+    ),
+    fat: Math.round(readDishMacro(raw, "fat", "fats", "жири", "жир", "f")),
+    carbs: Math.round(
+      readDishMacro(raw, "carbs", "carbohydrates", "вуглеводи", "вуглевод", "c")
+    ),
   };
 }
 
-/** Ключі прийомів їжі в об'єкті дня (без totalCalories / macros) */
+/** Розподіляє day.macros по стравах пропорційно калоріям, якщо у страв немає БЖВ */
+function fillMissingDishMacros(day: DayMenu): DayMenu {
+  const result: DayMenu = { ...day };
+  const slots: { key: string; index: number }[] = [];
+  let totalDishMacros = 0;
+
+  for (const key of getMealKeys(day)) {
+    const dishes = (day[key] as unknown[]).filter(isValidDish).map(normalizeDish);
+    (result as Record<string, MenuDish[]>)[key] = dishes;
+    dishes.forEach((dish, index) => {
+      slots.push({ key, index });
+      totalDishMacros += dish.protein + dish.fat + dish.carbs;
+    });
+  }
+
+  if (totalDishMacros > 0 || slots.length === 0) return result;
+
+  const dayProtein = Math.round(readNum(day.macros?.protein));
+  const dayFat = Math.round(readNum(day.macros?.fat));
+  const dayCarbs = Math.round(readNum(day.macros?.carbs));
+  if (dayProtein + dayFat + dayCarbs === 0) return result;
+
+  const allDishes = slots.map(({ key, index }) => (result[key] as MenuDish[])[index]);
+  const totalCal = allDishes.reduce((s, d) => s + d.calories, 0);
+  if (totalCal <= 0) return result;
+
+  for (const { key, index } of slots) {
+    const dish = (result[key] as MenuDish[])[index];
+    const share = dish.calories / totalCal;
+    (result[key] as MenuDish[])[index] = {
+      ...dish,
+      protein: Math.round(dayProtein * share),
+      fat: Math.round(dayFat * share),
+      carbs: Math.round(dayCarbs * share),
+    };
+  }
+
+  return result;
+}
+
+function readDayMacros(day: DayMenu): Macros {
+  return {
+    protein: Math.round(readNum(day.macros?.protein)),
+    fat: Math.round(readNum(day.macros?.fat)),
+    carbs: Math.round(readNum(day.macros?.carbs)),
+  };
+}
 export function getMealKeys(day: DayMenu): string[] {
   return Object.keys(day).filter(
     (k) => !DAY_META_KEYS.has(k) && Array.isArray(day[k])
@@ -110,44 +186,44 @@ export function computeDayTotals(day: DayMenu): { totalCalories: number; macros:
     }
   }
 
+  const fromDishes: Macros = {
+    protein: Math.round(protein),
+    fat: Math.round(fat),
+    carbs: Math.round(carbs),
+  };
+
+  const dishMacroSum = fromDishes.protein + fromDishes.fat + fromDishes.carbs;
+  const fallbackMacros = readDayMacros(day);
+  const macros =
+    dishMacroSum > 0
+      ? fromDishes
+      : fallbackMacros.protein + fallbackMacros.fat + fallbackMacros.carbs > 0
+        ? fallbackMacros
+        : fromDishes;
+
   return {
-    totalCalories: Math.round(totalCalories),
-    macros: {
-      protein: Math.round(protein),
-      fat: Math.round(fat),
-      carbs: Math.round(carbs),
-    },
+    totalCalories: Math.round(totalCalories) || Math.round(readNum(day.totalCalories)),
+    macros,
   };
 }
 
 /** Нормалізує страви та перераховує totalCalories / macros за день */
 export function normalizeDayMenu(day: DayMenu): DayMenu {
-  const result: DayMenu = {
-    ...day,
-    breakfast: Array.isArray(day.breakfast)
-      ? day.breakfast.filter(isValidDish).map(normalizeDish)
-      : [],
-    lunch: Array.isArray(day.lunch) ? day.lunch.filter(isValidDish).map(normalizeDish) : [],
-    dinner: Array.isArray(day.dinner) ? day.dinner.filter(isValidDish).map(normalizeDish) : [],
+  const filled = fillMissingDishMacros(day);
+  const totals = computeDayTotals(filled);
+  return {
+    ...filled,
+    totalCalories: totals.totalCalories,
+    macros: totals.macros,
   };
-
-  for (const key of getMealKeys(day)) {
-    if (key === "breakfast" || key === "lunch" || key === "dinner") continue;
-    const dishes = (day[key] as MenuDish[]).filter(isValidDish).map(normalizeDish);
-    if (dishes.length > 0) {
-      result[key] = dishes;
-    }
-  }
-
-  const totals = computeDayTotals(result);
-  result.totalCalories = totals.totalCalories;
-  result.macros = totals.macros;
-  return result;
 }
 
 /** Форматує БЖВ однієї страви для UI / експорту */
 export function formatDishMacros(dish: MenuDish): string {
-  return `Б: ${dish.protein}г | Ж: ${dish.fat}г | В: ${dish.carbs}г`;
+  const p = Math.round(dish.protein || 0);
+  const f = Math.round(dish.fat || 0);
+  const c = Math.round(dish.carbs || 0);
+  return `Б: ${p}г | Ж: ${f}г | В: ${c}г`;
 }
 
 function isValidDayMenu(day: unknown): day is DayMenu {

@@ -20,7 +20,7 @@ export default function HomePage() {
   useEffect(() => setMounted(true), []);
 
   return (
-    <main className="flex-1 w-full max-w-lg mx-auto px-4 pb-28">
+    <main className="flex-1 w-full max-w-lg mx-auto px-4 pb-20">
       <header className="pt-8 pb-6 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-11 h-11 rounded-2xl bg-teal-600 flex items-center justify-center text-white shrink-0">
@@ -86,10 +86,11 @@ export default function HomePage() {
 
       <button
         onClick={() => setFormOpen(true)}
-        className="fixed bottom-6 right-1/2 translate-x-1/2 sm:right-auto sm:left-1/2 sm:-translate-x-1/2 flex items-center gap-2 rounded-full bg-teal-600 text-white font-semibold pl-5 pr-6 py-4 shadow-lg shadow-teal-600/30 active:scale-95 transition-all hover:bg-teal-700"
+        className="fixed bottom-5 right-4 z-40 flex items-center gap-1.5 rounded-full bg-teal-600 text-white text-sm font-semibold pl-3.5 pr-4 py-2.5 shadow-md shadow-teal-600/25 active:scale-95 transition-all hover:bg-teal-700"
+        aria-label="Додати клієнта"
       >
-        <Plus size={22} />
-        Додати клієнта
+        <Plus size={18} />
+        Додати
       </button>
 
       {formOpen && <ClientForm onClose={() => setFormOpen(false)} />}

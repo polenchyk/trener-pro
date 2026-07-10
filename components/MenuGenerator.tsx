@@ -222,9 +222,10 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
 
   const getMenuText = (mode: "week" | "day") => {
     if (!menu) return "";
+    const normalized = normalizeWeeklyMenu(menu);
     return mode === "week"
-      ? formatWeekForMessenger(client, menu)
-      : formatDayForMessenger(client, menu, activeDay);
+      ? formatWeekForMessenger(client, normalized)
+      : formatDayForMessenger(client, normalized, activeDay);
   };
 
   const copy = async (mode: "week" | "day") => {

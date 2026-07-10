@@ -7,25 +7,29 @@ import {
   WeekDay,
   WeeklyMenu,
 } from "./types";
-import { computeDayTotals, formatDishMacros, getMealsFromDay } from "./menu-utils";
+import { computeDayTotals, getMealsFromDay, normalizeDayMenu } from "./menu-utils";
 
 const DIVIDER = "━━━━━━━━━━━━━━━━";
 const SIGNATURE = "З турботою про твою форму, твій тренер! 💪🏼";
 
 function dayLines(day: WeekDay, menu: DayMenu): string[] {
-  const totals = computeDayTotals(menu);
+  const normalized = normalizeDayMenu(menu);
+  const totals = computeDayTotals(normalized);
   const lines: string[] = [];
   lines.push(`📅 ${day.toUpperCase()} — ~${totals.totalCalories} ккал`);
   lines.push(
     `🥩 ${totals.macros.protein} г  |  🥑 ${totals.macros.fat} г  |  🍞 ${totals.macros.carbs} г`
   );
 
-  for (const meal of getMealsFromDay(menu)) {
+  for (const meal of getMealsFromDay(normalized)) {
     lines.push("");
     lines.push(`${meal.label.emoji} ${meal.label.name}:`);
     for (const dish of meal.dishes) {
+      const p = Math.round(dish.protein || 0);
+      const f = Math.round(dish.fat || 0);
+      const c = Math.round(dish.carbs || 0);
       lines.push(
-        `• ${dish.title} — ${dish.portion} (${dish.calories} ккал, ${formatDishMacros(dish)})`
+        `• ${dish.title} — ${dish.portion} (${dish.calories} ккал, Б: ${p}г | Ж: ${f}г | В: ${c}г)`
       );
     }
   }
