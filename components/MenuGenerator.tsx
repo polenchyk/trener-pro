@@ -27,11 +27,13 @@ import {
 import { formatDayMenuForMessenger } from "@/lib/format-menu";
 import {
   computeDayTotals,
+  createEmptyWeeklyMenu,
   formatDishMacros,
   getMealsFromDay,
+  hasDayMenuContent,
   normalizeDayMenu,
 } from "@/lib/menu-utils";
-import { isFormMenuCommand } from "@/lib/consult-menu";
+import { isAdjustMenuCommand, isFormMenuCommand } from "@/lib/consult-menu";
 import {
   formatTargetMacrosBlock,
   getClientMacroNorms,
@@ -129,17 +131,128 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
   };
 
   const savedDayMenu = menu?.days[activeDay];
-  const hasDayMenu = Boolean(
-    savedDayMenu &&
-      (savedDayMenu.breakfast?.length ||
-        savedDayMenu.lunch?.length ||
-        savedDayMenu.dinner?.length)
-  );
+  const hasDayMenu = hasDayMenuContent(savedDayMenu);
 
   const displayDay: DayMenu | undefined =
     pendingDayMenu ?? (savedDayMenu as DayMenu | undefined);
   const dayTotals = displayDay ? computeDayTotals(normalizeDayMenu(displayDay)) : null;
   const dayMeals = displayDay ? getMealsFromDay(normalizeDayMenu(displayDay)) : [];
+
+  const applyDayMenuUpdate = (dayMenu: DayMenu, explanation: string) => {
+    const normalized = normalizeDayMenu(dayMenu);
+    setPendingConsultMenu(client.id, activeDay, normalized);
+    setConsulting(client.id, activeDay, true);
+
+    const assistantMessage: ChatMessage = {
+      role: "assistant",
+      content: explanation,
+      consultReady: true,
+    };
+
+    setConsultChats((prev) => {
+      const history = prev[activeDay] ?? [];
+      const next = [...history, assistantMessage].slice(-MAX_CHAT_MESSAGES);
+      if (autoSpeak && explanation.trim()) {
+        const messageId = next.length - 1;
+        window.setTimeout(() => {
+          setSpeakingMessageId(messageId);
+          speak(explanation, () => setSpeakingMessageId(null));
+        }, 0);
+      }
+      return { ...prev, [activeDay]: next };
+    });
+  };
+
+  const sendAdjust = async (instruction: string, historyForApi: ChatMessage[]) => {
+    const currentMenu = pendingDayMenu ?? savedDayMenu;
+    if (!currentMenu) return;
+
+    const baseMenu = menu ?? createEmptyWeeklyMenu();
+    const daysForApi = {
+      ...baseMenu.days,
+      [activeDay]: normalizeDayMenu(currentMenu),
+    };
+
+    const res = await fetch("/api/adjust-menu", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client: clientPayload,
+        weeklyMenu: { ...baseMenu, days: daysForApi },
+        activeDay,
+        instruction,
+        messages: historyForApi.map((m) => ({ role: m.role, content: m.content })),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Не вдалося оновити меню.");
+    }
+
+    const updatedDay = data.updatedDays?.[activeDay] as DayMenu | undefined;
+    if (!updatedDay) {
+      const explanation =
+        data.explanation?.trim() ||
+        "Не вдалося оновити меню. Спробуйте конкретніше.";
+      setConsultChats((prev) => ({
+        ...prev,
+        [activeDay]: [
+          ...historyForApi,
+          { role: "assistant", content: explanation },
+        ].slice(-MAX_CHAT_MESSAGES),
+      }));
+      return;
+    }
+
+    applyDayMenuUpdate(updatedDay, data.explanation?.trim() || "Меню оновлено.");
+  };
+
+  const sendConsult = async (instruction: string, historyForApi: ChatMessage[]) => {
+    const currentMenu = pendingDayMenu ?? savedDayMenu;
+
+    const res = await fetch("/api/consult-menu", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client: clientPayload,
+        activeDay,
+        workoutForDay: client.weeklyWorkouts[activeDay] ?? "",
+        instruction,
+        messages: historyForApi,
+        forceForm: isFormMenuCommand(instruction),
+        currentDayMenu: currentMenu ? normalizeDayMenu(currentMenu) : null,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Не вдалося отримати відповідь.");
+    }
+
+    const explanation = data.explanation?.trim() || "Готово.";
+    const isReady = data.phase === "ready" && data.dayMenu;
+
+    if (isReady) {
+      setPendingConsultMenu(client.id, activeDay, data.dayMenu as DayMenu);
+    }
+
+    const assistantMessage: ChatMessage = {
+      role: "assistant",
+      content: explanation,
+      consultReady: Boolean(isReady),
+    };
+
+    setConsultChats((prev) => {
+      const next = [...historyForApi, assistantMessage].slice(-MAX_CHAT_MESSAGES);
+      if (autoSpeak && explanation.trim()) {
+        const messageId = next.length - 1;
+        window.setTimeout(() => {
+          setSpeakingMessageId(messageId);
+          speak(explanation, () => setSpeakingMessageId(null));
+        }, 0);
+      }
+      return { ...prev, [activeDay]: next };
+    });
+  };
 
   const sendChat = async () => {
     const instruction = adjustInput.trim();
@@ -155,47 +268,15 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
     setConsultChats((prev) => ({ ...prev, [activeDay]: historyForApi }));
 
     try {
-      const res = await fetch("/api/consult-menu", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          client: clientPayload,
-          activeDay,
-          workoutForDay: client.weeklyWorkouts[activeDay] ?? "",
-          instruction,
-          messages: historyForApi,
-          forceForm: isFormMenuCommand(instruction),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Не вдалося отримати відповідь.");
+      const currentMenu = pendingDayMenu ?? savedDayMenu;
+      const shouldAdjust =
+        hasDayMenuContent(currentMenu) && isAdjustMenuCommand(instruction);
+
+      if (shouldAdjust) {
+        await sendAdjust(instruction, historyForApi);
+      } else {
+        await sendConsult(instruction, historyForApi);
       }
-
-      const explanation = data.explanation?.trim() || "Готово.";
-      const isReady = data.phase === "ready" && data.dayMenu;
-
-      if (isReady) {
-        setPendingConsultMenu(client.id, activeDay, data.dayMenu as DayMenu);
-      }
-
-      const assistantMessage: ChatMessage = {
-        role: "assistant",
-        content: explanation,
-        consultReady: Boolean(isReady),
-      };
-
-      setConsultChats((prev) => {
-        const next = [...historyForApi, assistantMessage].slice(-MAX_CHAT_MESSAGES);
-        if (autoSpeak && explanation.trim()) {
-          const messageId = next.length - 1;
-          window.setTimeout(() => {
-            setSpeakingMessageId(messageId);
-            speak(explanation, () => setSpeakingMessageId(null));
-          }, 0);
-        }
-        return { ...prev, [activeDay]: next };
-      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Сталася помилка. Спробуйте ще раз.");
       setAdjustInput(instruction);
@@ -387,7 +468,7 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
                 </div>
               </div>
 
-              {(pendingDayMenu || hasDayMenu) && displayDay && dayTotals && (
+              {(pendingDayMenu || hasDayMenuContent(displayDay)) && displayDay && dayTotals && (
                 <>
                   <div
                     className={`rounded-2xl border px-4 py-3 ${
@@ -466,7 +547,8 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
                     : `Скласти меню на ${activeDay}`}
                 </p>
                 <p className="text-[11px] text-sky-700 mb-2 px-0.5">
-                  Напишіть продукти, відповідайте на питання ШІ. Коли готові — «Формуй меню».
+                  Напишіть продукти або коригуйте меню («додай перекус», «кава з 20 мл молока»). Коли
+                  готові — «Формуй меню».
                 </p>
                 {chatMessages.length > 0 && (
                   <div className="space-y-2 mb-3 max-h-48 overflow-y-auto">

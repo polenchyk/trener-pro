@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { CONSULT_MENU_SYSTEM_PROMPT } from "@/lib/prompt";
 import { isFormMenuCommand, parseConsultMenuResponse } from "@/lib/consult-menu";
-import type { WeekDay } from "@/lib/types";
+import type { DayMenu, WeekDay } from "@/lib/types";
+import {
+  formatMealKeysForContext,
+  hasDayMenuContent,
+  suggestNextSnackKey,
+} from "@/lib/menu-utils";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -28,6 +33,8 @@ interface ConsultMenuBody {
   instruction: string;
   messages?: ChatMessage[];
   forceForm?: boolean;
+  /** Поточне меню дня (для коригування) */
+  currentDayMenu?: DayMenu | null;
 }
 
 export async function POST(request: NextRequest) {
@@ -62,6 +69,9 @@ export async function POST(request: NextRequest) {
   const forceForm = body.forceForm || isFormMenuCommand(instruction);
   const norms = c.macroNormsPerKg;
   const target = c.targetMacros;
+  const currentDayMenu = body.currentDayMenu ?? null;
+  const hasCurrentMenu = hasDayMenuContent(currentDayMenu);
+  const wantsSnack = /перекус|snack/i.test(instruction);
 
   const contextBlock = [
     `Клієнт: ${c.name}`,
@@ -81,6 +91,18 @@ export async function POST(request: NextRequest) {
       : `ПІДКАЗКА: якщо ще не зібрано достатньо відповідей — лишайся в phase "consulting" з питаннями.`,
     c.weight
       ? `Цільові БЖВ для клієнта (Вага ${c.weight} кг): Б-${target.protein}г, Ж-${target.fat}г, В-${target.carbs}г, Кл-${c.targetFiber ?? 25}г`
+      : "",
+    hasCurrentMenu
+      ? `Поточне меню на ${body.activeDay} (JSON): ${JSON.stringify(currentDayMenu)}`
+      : "",
+    hasCurrentMenu && currentDayMenu
+      ? `Поточні прийоми їжі: ${formatMealKeysForContext(currentDayMenu)}`
+      : "",
+    hasCurrentMenu && currentDayMenu && wantsSnack
+      ? `Наступний вільний ключ для нового перекусу: ${suggestNextSnackKey(currentDayMenu)}`
+      : "",
+    hasCurrentMenu && !forceForm
+      ? `ПІДКАЗКА: тренер коригує існуюче меню — поверни phase "ready" з оновленим dayMenu (повний об'єкт дня, усі ключі прийомів їжі).`
       : "",
   ]
     .filter(Boolean)

@@ -24,7 +24,7 @@ export function isFormMenuCommand(text: string): boolean {
 }
 
 const ADJUST_KEYWORDS =
-  /заміни|зміни|зменши|збільш|прибери|додай перекус|онови меню|весь тиждень/i;
+  /заміни|зміни|зменши|збільш|прибери|додай|внеси|онови меню|весь тиждень|перекус|перенеси|прибери з|замість/i;
 
 /** Чи схоже на команду коригування існуючого меню */
 export function isAdjustMenuCommand(text: string): boolean {

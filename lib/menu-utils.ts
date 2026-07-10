@@ -149,10 +149,36 @@ function mealSortOrder(key: string): number {
   if (alias === "lunch") return 10;
   if (alias === "dinner") return 100;
   if (/перекус|snack/i.test(lower)) {
-    const num = lower.match(/(\d+)/)?.[1];
-    return 50 + (num ? parseInt(num, 10) : 0);
+    if (lower === "snack") return 50;
+    const num = lower.match(/(?:snack_|перекус\s*)(\d+)/i)?.[1];
+    return 50 + (num ? parseInt(num, 10) : 1);
   }
   return 75;
+}
+
+/** Чи є в дні хоча б одна страва */
+export function hasDayMenuContent(day: DayMenu | undefined | null): boolean {
+  if (!day) return false;
+  return getMealKeys(day).some(
+    (k) => Array.isArray(day[k]) && (day[k] as MenuDish[]).length > 0
+  );
+}
+
+/** Наступний вільний ключ для нового перекусу */
+export function suggestNextSnackKey(day: DayMenu): string {
+  const keys = new Set(getMealKeys(day).map((k) => k.toLowerCase()));
+  if (!keys.has("snack")) return "snack";
+  for (let n = 2; n <= 30; n++) {
+    if (!keys.has(`snack_${n}`)) return `snack_${n}`;
+  }
+  return `snack_${Date.now()}`;
+}
+
+/** Список ключів прийомів їжі для контексту AI */
+export function formatMealKeysForContext(day: DayMenu): string {
+  return getMealKeys(day)
+    .map((k) => `${k} (${resolveMealLabel(k).name})`)
+    .join(", ");
 }
 
 /** Людська назва та емодзі для ключа прийому їжі */
@@ -161,7 +187,19 @@ export function resolveMealLabel(key: string): { name: string; emoji: string } {
   const alias = MEAL_KEY_ALIASES[lower];
   if (alias) return MEAL_LABELS[alias];
 
-  if (/^snack(_\d+)?$/i.test(lower) || /перекус/i.test(lower)) {
+  if (/^snack$/i.test(lower)) {
+    return { name: "Перекус 1", emoji: "🍎" };
+  }
+
+  if (/^snack_(\d+)$/i.test(lower)) {
+    const num = lower.match(/^snack_(\d+)$/i)?.[1];
+    return {
+      name: num ? `Перекус ${num}` : "Перекус",
+      emoji: "🍎",
+    };
+  }
+
+  if (/перекус/i.test(lower)) {
     const num = lower.match(/(\d+)/)?.[1];
     return {
       name: num ? `Перекус ${num}` : "Перекус",

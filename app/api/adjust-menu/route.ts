@@ -3,8 +3,10 @@ import OpenAI from "openai";
 import { ADJUST_MENU_SYSTEM_PROMPT } from "@/lib/prompt";
 import {
   extractMenuDays,
+  formatMealKeysForContext,
   isGlobalMenuInstruction,
   parseAdjustResponse,
+  suggestNextSnackKey,
 } from "@/lib/menu-utils";
 import { WEEK_DAYS, type WeekDay, type WeeklyMenu } from "@/lib/types";
 
@@ -78,6 +80,8 @@ export async function POST(request: NextRequest) {
   const instruction = body.instruction.trim();
   const globalChange = isGlobalMenuInstruction(instruction);
   const history = (body.messages ?? []).slice(-6);
+  const activeDayMenu = body.activeDay ? menuDays[body.activeDay] : undefined;
+  const wantsSnack = /перекус|snack/i.test(instruction);
 
   const contextBlock = [
     `Клієнт: ${c.name}`,
@@ -85,9 +89,17 @@ export async function POST(request: NextRequest) {
     `Добова калорійність: ${c.calories} ккал`,
     c.notes ? `Особливості: ${c.notes}` : "",
     body.activeDay ? `Зараз тренер переглядає день: ${body.activeDay}` : "",
+    activeDayMenu
+      ? `Поточні прийоми їжі на ${body.activeDay}: ${formatMealKeysForContext(activeDayMenu)}`
+      : "",
+    activeDayMenu && wantsSnack
+      ? `Наступний вільний ключ для нового перекусу: ${suggestNextSnackKey(activeDayMenu)}`
+      : "",
     globalChange
       ? `Підказка: запит може стосуватися всього тижня — якщо тренер дає команду змінити, поверни updatedDays для ВСІХ 7 днів.`
-      : "",
+      : body.activeDay
+        ? `Підказка: при локальній зміні поверни updatedDays лише для дня «${body.activeDay}» з ПОВНИМ об'єктом дня (усі існуючі ключі прийомів їжі + зміни).`
+        : "",
     ``,
     `Поточне тижневе меню клієнта (JSON):`,
     JSON.stringify({ title: body.weeklyMenu?.title ?? "Меню на тиждень", days: menuDays }),
