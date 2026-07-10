@@ -1,19 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Dumbbell, Users, ScanLine, DatabaseBackup } from "lucide-react";
+import { Plus, Dumbbell, Users, ScanLine, DatabaseBackup, BookOpen } from "lucide-react";
 import { useCoachStore } from "@/lib/store";
 import ClientCard from "@/components/ClientCard";
 import ClientForm from "@/components/ClientForm";
 import PlateScanner from "@/components/PlateScanner";
 import BackupPanel from "@/components/BackupPanel";
 import GlobalAIAssistant from "@/components/GlobalAIAssistant";
+import TrainerHandbook from "@/components/TrainerHandbook";
 
 export default function HomePage() {
   const clients = useCoachStore((s) => s.clients);
   const [formOpen, setFormOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
+  const [handbookOpen, setHandbookOpen] = useState(false);
 
   // Уникаємо розбіжностей гідратації: localStorage доступний лише в браузері
   const [mounted, setMounted] = useState(false);
@@ -34,6 +36,14 @@ export default function HomePage() {
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={() => setHandbookOpen(true)}
+            className="flex flex-col items-center gap-0.5 rounded-2xl bg-amber-50 text-amber-900 px-3 py-2 active:scale-95 transition-all hover:bg-amber-100"
+            aria-label="Картотека тренера"
+          >
+            <BookOpen size={20} />
+            <span className="text-[10px] font-semibold leading-none">База</span>
+          </button>
           <button
             onClick={() => setBackupOpen(true)}
             className="flex flex-col items-center gap-0.5 rounded-2xl bg-gray-50 text-gray-600 px-3 py-2 active:scale-95 transition-all hover:bg-gray-100"
@@ -96,6 +106,7 @@ export default function HomePage() {
       {formOpen && <ClientForm onClose={() => setFormOpen(false)} />}
       {scannerOpen && <PlateScanner onClose={() => setScannerOpen(false)} />}
       {backupOpen && <BackupPanel onClose={() => setBackupOpen(false)} />}
+      {handbookOpen && <TrainerHandbook onClose={() => setHandbookOpen(false)} />}
     </main>
   );
 }

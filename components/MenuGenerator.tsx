@@ -13,6 +13,7 @@ import {
   Wand2,
   CalendarCheck,
   MessageCircle,
+  BookOpen,
 } from "lucide-react";
 import { useCoachStore } from "@/lib/store";
 import {
@@ -53,6 +54,7 @@ import SpeechButton from "./SpeechButton";
 import VoiceInputButton from "./VoiceInputButton";
 import WorkoutPlanner from "./WorkoutPlanner";
 import RecipeModal from "./RecipeModal";
+import TrainerHandbook from "./TrainerHandbook";
 
 const MAX_CHAT_MESSAGES = 6;
 
@@ -95,6 +97,7 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
   const [speakingMessageId, setSpeakingMessageId] = useState<number | null>(null);
   const [recipeDish, setRecipeDish] = useState<MenuDish | null>(null);
   const [savedConsultFlash, setSavedConsultFlash] = useState(false);
+  const [handbookOpen, setHandbookOpen] = useState(false);
 
   const isConsultingActive = Boolean(isConsultingMap[activeDay]);
   const pendingDayMenu = pendingConsultMap[activeDay];
@@ -385,6 +388,15 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
 
       {expanded && (
         <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => setHandbookOpen(true)}
+            className="w-full flex items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-amber-950 font-semibold text-sm active:scale-[0.98] transition-all hover:bg-amber-50"
+          >
+            <BookOpen size={17} />
+            Картотека тренера — звірка з лекціями
+          </button>
+
           <div className="grid grid-cols-2 gap-1 rounded-2xl bg-gray-100 p-1">
             {(
               [
@@ -717,6 +729,7 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
       )}
 
       <RecipeModal dish={recipeDish} onClose={() => setRecipeDish(null)} />
+      {handbookOpen && <TrainerHandbook onClose={() => setHandbookOpen(false)} />}
     </div>
   );
 }
