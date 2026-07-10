@@ -4,10 +4,9 @@ import { CONSULT_MENU_SYSTEM_PROMPT } from "@/lib/prompt";
 import { isFormMenuCommand, parseConsultMenuResponse } from "@/lib/consult-menu";
 import type { DayMenu, WeekDay } from "@/lib/types";
 import {
-  formatMealKeysForContext,
+  formatMealsForContext,
   hasDayMenuContent,
-  resolveSnackTargetFromInstruction,
-  suggestNextSnackKey,
+  suggestMealOrderFromInstruction,
 } from "@/lib/menu-utils";
 
 export const runtime = "nodejs";
@@ -72,8 +71,9 @@ export async function POST(request: NextRequest) {
   const target = c.targetMacros;
   const currentDayMenu = body.currentDayMenu ?? null;
   const hasCurrentMenu = hasDayMenuContent(currentDayMenu);
-  const wantsSnack = /перекус|snack/i.test(instruction);
-  const snackTarget = resolveSnackTargetFromInstruction(instruction);
+  const suggestedOrder = hasCurrentMenu && currentDayMenu
+    ? suggestMealOrderFromInstruction(currentDayMenu, instruction)
+    : null;
 
   const contextBlock = [
     `Клієнт: ${c.name}`,
@@ -98,13 +98,10 @@ export async function POST(request: NextRequest) {
       ? `Поточне меню на ${body.activeDay} (JSON): ${JSON.stringify(currentDayMenu)}`
       : "",
     hasCurrentMenu && currentDayMenu
-      ? `Поточні прийоми їжі: ${formatMealKeysForContext(currentDayMenu)}`
+      ? `Таймлайн прийомів їжі: ${formatMealsForContext(currentDayMenu)}`
       : "",
-    hasCurrentMenu && currentDayMenu && wantsSnack
-      ? `Наступний вільний ключ для нового перекусу: ${suggestNextSnackKey(currentDayMenu)}`
-      : "",
-    snackTarget
-      ? `Цільовий прийом їжі: ${snackTarget} (змінюй ВИКЛЮЧНО цей ключ).`
+    suggestedOrder !== null
+      ? `Рекомендований order для нового/зміненого прийому їжі: ${suggestedOrder}`
       : "",
     hasCurrentMenu && !forceForm
       ? `ПІДКАЗКА: тренер коригує існуюче меню — поверни phase "ready" з оновленим dayMenu (повний об'єкт дня, усі ключі прийомів їжі).`

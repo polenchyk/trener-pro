@@ -3,11 +3,10 @@ import OpenAI from "openai";
 import { ADJUST_MENU_SYSTEM_PROMPT } from "@/lib/prompt";
 import {
   extractMenuDays,
-  formatMealKeysForContext,
+  formatMealsForContext,
   isGlobalMenuInstruction,
   parseAdjustResponse,
-  resolveSnackTargetFromInstruction,
-  suggestNextSnackKey,
+  suggestMealOrderFromInstruction,
 } from "@/lib/menu-utils";
 import { WEEK_DAYS, type WeekDay, type WeeklyMenu } from "@/lib/types";
 
@@ -82,8 +81,9 @@ export async function POST(request: NextRequest) {
   const globalChange = isGlobalMenuInstruction(instruction);
   const history = (body.messages ?? []).slice(-6);
   const activeDayMenu = body.activeDay ? menuDays[body.activeDay] : undefined;
-  const wantsSnack = /перекус|snack/i.test(instruction);
-  const snackTarget = resolveSnackTargetFromInstruction(instruction);
+  const suggestedOrder = activeDayMenu
+    ? suggestMealOrderFromInstruction(activeDayMenu, instruction)
+    : null;
 
   const contextBlock = [
     `Клієнт: ${c.name}`,
@@ -92,13 +92,10 @@ export async function POST(request: NextRequest) {
     c.notes ? `Особливості: ${c.notes}` : "",
     body.activeDay ? `Зараз тренер переглядає день: ${body.activeDay}` : "",
     activeDayMenu
-      ? `Поточні прийоми їжі на ${body.activeDay}: ${formatMealKeysForContext(activeDayMenu)}`
+      ? `Таймлайн прийомів їжі на ${body.activeDay}: ${formatMealsForContext(activeDayMenu)}`
       : "",
-    activeDayMenu && wantsSnack
-      ? `Наступний вільний ключ для нового перекусу: ${suggestNextSnackKey(activeDayMenu)}`
-      : "",
-    snackTarget
-      ? `Цільовий прийом їжі для цієї інструкції: ${snackTarget} (змінюй ВИКЛЮЧНО цей ключ, інші перекуси не чіпай).`
+    suggestedOrder !== null
+      ? `Рекомендований order для нового/зміненого прийому їжі: ${suggestedOrder}`
       : "",
     globalChange
       ? `Підказка: запит може стосуватися всього тижня — якщо тренер дає команду змінити, поверни updatedDays для ВСІХ 7 днів.`

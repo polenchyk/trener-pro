@@ -500,11 +500,11 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
 
                   {dayMeals.map((meal) => (
                     <div
-                      key={meal.key}
+                      key={meal.id}
                       className="rounded-2xl border border-gray-100 px-4 py-3.5"
                     >
                       <p className="font-semibold text-gray-900 mb-2">
-                        {meal.label.emoji} {meal.label.name}
+                        {meal.label.emoji} {meal.title}
                       </p>
                       <ul className="space-y-2.5">
                         {meal.dishes.map((dish, i) => (

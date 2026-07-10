@@ -157,16 +157,24 @@ export interface MenuDish {
   recipe?: string;
 }
 
-/** Меню на один день тижня (може містити додаткові прийоми: snack, snack_1, Перекус тощо) */
+/** Один прийом їжі в динамічному таймлайні дня */
+export interface MealSlot {
+  /** Унікальний id (напр. breakfast, snack_morning_2, snack_after_dinner) */
+  id: string;
+  /** Назва для UI (напр. «Перекус після вечері») */
+  title: string;
+  /** Хронологічний індекс 1–100 для сортування */
+  order: number;
+  dishes: MenuDish[];
+}
+
+/** Меню на один день тижня — динамічний таймлайн прийомів їжі */
 export interface DayMenu {
   totalCalories: number;
   macros: Macros;
   /** Сума клітковини за день, г */
   fiber?: number;
-  breakfast: MenuDish[];
-  lunch: MenuDish[];
-  dinner: MenuDish[];
-  [mealKey: string]: MenuDish[] | number | Macros | undefined;
+  meals: MealSlot[];
 }
 
 /** Тижневе меню, яке повертає AI у суворому JSON */

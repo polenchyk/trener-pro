@@ -4,7 +4,7 @@ import type { Client, DayMenu, WeekDay, WeeklyMenu } from "./types";
 import { DEFAULT_MACRO_NORMS_PER_KG, DEFAULT_TARGET_FIBER, WEEK_DAYS } from "./types";
 import { suggestNutritionNorms } from "./macro-norms";
 import { calcMacrosFromWeight } from "./macro-utils";
-import { createEmptyWeeklyMenu, normalizeDayMenu } from "./menu-utils";
+import { createEmptyWeeklyMenu, normalizeDayMenu, normalizeWeeklyMenu } from "./menu-utils";
 
 /** Нормалізує клієнта зі старих версій даних (міграція, бекапи) */
 function normalizeClient(raw: Client & { weight?: number }): Client {
@@ -315,7 +315,7 @@ export const useCoachStore = create<CoachStore>()(
     {
       name: "coachmenu-pro-storage",
       storage: createJSONStorage(() => localStorage),
-      version: 6,
+      version: 7,
       migrate: (persisted, version) => {
         let state = persisted as CoachStore;
         if (version < 2) {
@@ -338,6 +338,14 @@ export const useCoachStore = create<CoachStore>()(
             ...state,
             clients: (state.clients ?? []).map(normalizeClient),
           };
+        }
+        if (version < 7) {
+          const menus = state.menus ?? {};
+          const migratedMenus: Record<string, WeeklyMenu> = {};
+          for (const [clientId, menu] of Object.entries(menus)) {
+            migratedMenus[clientId] = menu ? normalizeWeeklyMenu(menu) : menu;
+          }
+          state = { ...state, menus: migratedMenus };
         }
         return state;
       },
