@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BedDouble, Check, Dumbbell, Loader2, Sparkles, AlertCircle } from "lucide-react";
+import {
+  BedDouble,
+  Dumbbell,
+  Loader2,
+  Send,
+  Sparkles,
+  AlertCircle,
+  Wand2,
+  CalendarCheck,
+} from "lucide-react";
 import { useCoachStore } from "@/lib/store";
 import { Client, GOAL_LABELS, latestWeight, SEX_LABELS, WEEK_DAYS, WeekDay } from "@/lib/types";
 import {
@@ -12,6 +21,14 @@ import {
 import AutoSpeakToggle from "./AutoSpeakToggle";
 import SpeechButton from "./SpeechButton";
 import VoiceInputButton from "./VoiceInputButton";
+
+const MAX_CHAT_MESSAGES = 6;
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  updatedDays?: WeekDay[];
+}
 
 interface WorkoutPlannerProps {
   client: Client;
@@ -49,17 +66,17 @@ function buildWorkoutAiSummary(
 }
 
 export default function WorkoutPlanner({ client, day }: WorkoutPlannerProps) {
-  const setWorkout = useCoachStore((s) => s.setWorkout);
+  const updateWorkouts = useCoachStore((s) => s.updateWorkouts);
   const updateClient = useCoachStore((s) => s.updateClient);
 
-  const saved = client.weeklyWorkouts[day] ?? "";
-  const [text, setText] = useState(saved);
+  const saved = client.weeklyWorkouts[day]?.trim() ?? "";
   const [generating, setGenerating] = useState(false);
+  const [adjusting, setAdjusting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [savedFlash, setSavedFlash] = useState(false);
-  const [aiResponse, setAiResponse] = useState<string | null>(null);
+  const [adjustInput, setAdjustInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [autoSpeak, setAutoSpeak] = useState(false);
-  const [speakingResponse, setSpeakingResponse] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<number | null>(null);
 
   const { speak, stop: stopSpeech, isSpeaking, isSupported: speechSupported } = useSpeech();
 
@@ -68,46 +85,112 @@ export default function WorkoutPlanner({ client, day }: WorkoutPlannerProps) {
   }, []);
 
   useEffect(() => {
-    setText(saved);
-  }, [saved]);
-
-  useEffect(() => {
     stopSpeech();
-    setSpeakingResponse(false);
-    setAiResponse(null);
+    setSpeakingMessageId(null);
   }, [day, stopSpeech]);
 
   const isRestDay = !saved;
-  const isDirty = text.trim() !== saved;
-
-  const save = () => {
-    if (!isDirty) return;
-    setWorkout(client.id, day, text);
-    setSavedFlash(true);
-    setTimeout(() => setSavedFlash(false), 2000);
-  };
 
   const handleAutoSpeakChange = (enabled: boolean) => {
     setAutoSpeak(enabled);
     writeAutoSpeakPreference("workout", enabled);
   };
 
-  const handleSpeakResponse = () => {
-    if (!aiResponse) return;
-    if (speakingResponse && isSpeaking) {
+  const handleSpeakMessage = (messageId: number, text: string) => {
+    if (speakingMessageId === messageId && isSpeaking) {
       stopSpeech();
-      setSpeakingResponse(false);
+      setSpeakingMessageId(null);
       return;
     }
-    setSpeakingResponse(true);
-    speak(aiResponse, () => setSpeakingResponse(false));
+    setSpeakingMessageId(messageId);
+    speak(text, () => setSpeakingMessageId(null));
+  };
+
+  const appendAssistantMessage = (content: string, updatedDays?: WeekDay[]) => {
+    const assistantMessage: ChatMessage = {
+      role: "assistant",
+      content,
+      updatedDays,
+    };
+    setChatMessages((prev) => {
+      const next = [...prev, assistantMessage].slice(-MAX_CHAT_MESSAGES);
+      if (autoSpeak && content.trim()) {
+        const messageId = next.length - 1;
+        window.setTimeout(() => {
+          setSpeakingMessageId(messageId);
+          speak(content, () => setSpeakingMessageId(null));
+        }, 0);
+      }
+      return next;
+    });
+  };
+
+  const sendChat = async () => {
+    const instruction = adjustInput.trim();
+    if (!instruction || adjusting) return;
+
+    const userMessage: ChatMessage = { role: "user", content: instruction };
+    const historyForApi = [...chatMessages, userMessage].slice(-MAX_CHAT_MESSAGES);
+
+    setAdjusting(true);
+    setError(null);
+    setAdjustInput("");
+    setChatMessages(historyForApi);
+
+    try {
+      const res = await fetch("/api/adjust-workout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client: {
+            name: client.name,
+            goal: GOAL_LABELS[client.goal],
+            notes: client.notes,
+            sex: SEX_LABELS[client.sex],
+            activityLevel: client.activityLevel,
+          },
+          weeklyWorkouts: client.weeklyWorkouts,
+          activeDay: day,
+          instruction,
+          messages: historyForApi,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Не вдалося отримати відповідь.");
+      }
+
+      const explanation =
+        data.explanation?.trim() ||
+        (data.updatedWorkouts ? "Тренування оновлено." : "Готово.");
+
+      let changedDays: WeekDay[] = [];
+      if (data.updatedWorkouts && typeof data.updatedWorkouts === "object") {
+        const updatedWorkouts = data.updatedWorkouts as Partial<Record<WeekDay, string>>;
+        changedDays = WEEK_DAYS.filter((d) => d in updatedWorkouts);
+        if (changedDays.length > 0) {
+          updateWorkouts(client.id, updatedWorkouts);
+        }
+      }
+
+      appendAssistantMessage(
+        explanation,
+        changedDays.length > 0 ? changedDays : undefined
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Сталася помилка. Спробуйте ще раз.");
+      setAdjustInput(instruction);
+      setChatMessages((prev) => prev.slice(0, -1));
+    } finally {
+      setAdjusting(false);
+    }
   };
 
   const generateWeek = async () => {
     setGenerating(true);
     setError(null);
     stopSpeech();
-    setSpeakingResponse(false);
+    setSpeakingMessageId(null);
     try {
       const res = await fetch("/api/generate-workout", {
         method: "POST",
@@ -128,14 +211,9 @@ export default function WorkoutPlanner({ client, day }: WorkoutPlannerProps) {
       }
       const workouts = data.workouts as Partial<Record<WeekDay, string>>;
       updateClient(client.id, { weeklyWorkouts: workouts });
-      setText(workouts[day] ?? "");
 
       const summary = buildWorkoutAiSummary(workouts, day);
-      setAiResponse(summary);
-      if (autoSpeak) {
-        setSpeakingResponse(true);
-        speak(summary, () => setSpeakingResponse(false));
-      }
+      appendAssistantMessage(summary, WEEK_DAYS.filter((d) => workouts[d]?.trim()));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Сталася помилка. Спробуйте ще раз.");
     } finally {
@@ -145,12 +223,12 @@ export default function WorkoutPlanner({ client, day }: WorkoutPlannerProps) {
 
   return (
     <div className="space-y-3">
-      {isRestDay && !text.trim() ? (
+      {isRestDay ? (
         <div className="flex flex-col items-center gap-2 rounded-2xl bg-sky-50 border border-sky-100 px-4 py-6 text-center">
           <span className="text-3xl">🛌</span>
           <p className="font-semibold text-sky-900">День відновлення / Відпочинок</p>
           <p className="text-xs text-sky-700">
-            Можете додати тренування в полі нижче
+            Напишіть ШІ, щоб додати або змінити тренування
           </p>
         </div>
       ) : (
@@ -159,38 +237,90 @@ export default function WorkoutPlanner({ client, day }: WorkoutPlannerProps) {
             <Dumbbell size={16} />
             Тренування · {day}
           </p>
-          <p className="text-sm text-teal-800 whitespace-pre-wrap">{saved || text}</p>
+          <p className="text-sm text-teal-800 whitespace-pre-wrap">{saved}</p>
         </div>
       )}
 
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") save();
+      <div className="rounded-2xl border border-gray-100 bg-gray-50/70 px-3.5 py-3.5">
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 mb-2">
+          <Wand2 size={14} />
+          Запитати AI / змінити тренування
+        </p>
+        {chatMessages.length > 0 && (
+          <div className="space-y-2 mb-3 max-h-48 overflow-y-auto">
+            {chatMessages.map((m, i) => (
+              <div key={i}>
+                {m.role === "user" ? (
+                  <div className="rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap leading-relaxed bg-teal-600 text-white ml-6">
+                    {m.content}
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-1 mr-2">
+                    <div className="flex-1 min-w-0 rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap leading-relaxed bg-white border border-teal-100 text-teal-900">
+                      {m.content}
+                    </div>
+                    <SpeechButton
+                      isActive={speakingMessageId === i && isSpeaking}
+                      isSupported={speechSupported}
+                      onToggle={() => handleSpeakMessage(i, m.content)}
+                    />
+                  </div>
+                )}
+                {m.updatedDays && (
+                  <p className="flex items-center gap-1 text-xs text-emerald-700 font-medium mt-1 px-1">
+                    <CalendarCheck size={13} />
+                    Тренування оновлено: {m.updatedDays.join(", ")}
+                  </p>
+                )}
+              </div>
+            ))}
+            {adjusting && (
+              <div className="flex items-center gap-2 text-teal-600 text-xs px-1 py-1">
+                <Loader2 size={14} className="animate-spin" />
+                AI думає...
+              </div>
+            )}
+          </div>
+        )}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            sendChat();
           }}
-          placeholder='Напр. "Ноги + прес" або "Кардіо 40 хв"'
-          className="flex-1 min-w-0 rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-        />
-        <VoiceInputButton value={text} onTranscript={setText} />
-        <button
-          onClick={save}
-          disabled={!isDirty}
-          className={`shrink-0 w-11 h-11 rounded-xl flex items-center justify-center active:scale-95 transition-all ${
-            savedFlash
-              ? "bg-emerald-600 text-white"
-              : "bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-40"
-          }`}
-          aria-label="Зберегти тренування"
+          className="flex gap-2"
         >
-          <Check size={18} />
-        </button>
+          <input
+            type="text"
+            value={adjustInput}
+            onChange={(e) => setAdjustInput(e.target.value)}
+            placeholder="Напишіть ШІ для зміни тренування або запитання..."
+            disabled={adjusting || generating}
+            className="flex-1 min-w-0 rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-60"
+          />
+          <VoiceInputButton
+            value={adjustInput}
+            disabled={adjusting || generating}
+            onTranscript={setAdjustInput}
+          />
+          <button
+            type="submit"
+            disabled={adjusting || generating || !adjustInput.trim()}
+            className="shrink-0 w-11 h-11 rounded-xl bg-teal-600 text-white flex items-center justify-center active:scale-95 transition-all hover:bg-teal-700 disabled:opacity-40"
+            aria-label="Надіслати"
+          >
+            {adjusting ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <Send size={18} />
+            )}
+          </button>
+        </form>
+        <AutoSpeakToggle
+          checked={autoSpeak}
+          onChange={handleAutoSpeakChange}
+          disabled={adjusting || generating}
+        />
       </div>
-      <p className="text-xs text-gray-400 px-1 -mt-1">
-        Порожнє поле = день відпочинку. Мікрофон — голосовий опис тренування.
-      </p>
 
       {error && (
         <div className="flex items-start gap-2 rounded-xl bg-red-50 border border-red-100 px-3 py-2.5">
@@ -199,22 +329,9 @@ export default function WorkoutPlanner({ client, day }: WorkoutPlannerProps) {
         </div>
       )}
 
-      {aiResponse && (
-        <div className="flex items-start gap-1 rounded-2xl border border-teal-100 bg-white px-3 py-2.5">
-          <p className="flex-1 min-w-0 text-sm text-teal-900 whitespace-pre-wrap leading-relaxed">
-            {aiResponse}
-          </p>
-          <SpeechButton
-            isActive={speakingResponse && isSpeaking}
-            isSupported={speechSupported}
-            onToggle={handleSpeakResponse}
-          />
-        </div>
-      )}
-
       <button
         onClick={generateWeek}
-        disabled={generating}
+        disabled={generating || adjusting}
         className="w-full flex items-center justify-center gap-2 rounded-2xl bg-teal-600 text-white font-semibold py-4 text-sm active:scale-[0.98] transition-all hover:bg-teal-700 disabled:opacity-60"
       >
         {generating ? (
@@ -229,12 +346,6 @@ export default function WorkoutPlanner({ client, day }: WorkoutPlannerProps) {
           </>
         )}
       </button>
-
-      <AutoSpeakToggle
-        checked={autoSpeak}
-        onChange={handleAutoSpeakChange}
-        disabled={generating}
-      />
 
       {generating ? (
         <div className="flex items-center gap-2 justify-center text-xs text-gray-400">

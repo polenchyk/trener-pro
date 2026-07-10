@@ -1,4 +1,5 @@
 import { GOAL_LABELS, latestWeight, WEEK_DAYS, type Client, type WeekDay } from "./types";
+import { normalizeWeekDay } from "./workout-utils";
 
 export type GlobalAiActionType = "add_weight" | "move_workout";
 
@@ -21,10 +22,6 @@ export type GlobalAiAction = GlobalAiAddWeightAction | GlobalAiMoveWorkoutAction
 export interface GlobalAiResponse {
   answer: string;
   actions: GlobalAiAction[];
-}
-
-function isWeekDay(value: string): value is WeekDay {
-  return (WEEK_DAYS as readonly string[]).includes(value);
 }
 
 export function parseGlobalAiResponse(parsed: unknown): GlobalAiResponse {
@@ -55,19 +52,17 @@ export function parseGlobalAiResponse(parsed: unknown): GlobalAiResponse {
         });
       }
 
-      if (
-        a.type === "move_workout" &&
-        typeof a.fromDay === "string" &&
-        typeof a.toDay === "string" &&
-        isWeekDay(a.fromDay) &&
-        isWeekDay(a.toDay)
-      ) {
-        actions.push({
-          type: "move_workout",
-          clientId,
-          fromDay: a.fromDay,
-          toDay: a.toDay,
-        });
+      if (a.type === "move_workout" && typeof a.fromDay === "string" && typeof a.toDay === "string") {
+        const fromDay = normalizeWeekDay(a.fromDay);
+        const toDay = normalizeWeekDay(a.toDay);
+        if (fromDay && toDay) {
+          actions.push({
+            type: "move_workout",
+            clientId,
+            fromDay,
+            toDay,
+          });
+        }
       }
     }
   }
@@ -87,6 +82,13 @@ export function getTodayContext(now = new Date()) {
   };
 }
 
+/** Повний розклад тренувань на 7 днів для промпту AI */
+function serializeWeeklyWorkouts(workouts: Client["weeklyWorkouts"]): Record<WeekDay, string> {
+  return Object.fromEntries(
+    WEEK_DAYS.map((d) => [d, workouts[d]?.trim() ?? ""])
+  ) as Record<WeekDay, string>;
+}
+
 /** Скорочений список клієнтів для промпту AI */
 export function serializeClientsForAi(clients: Client[]) {
   return clients.map((c) => ({
@@ -96,7 +98,7 @@ export function serializeClientsForAi(clients: Client[]) {
     calories: c.calories,
     latestWeight: latestWeight(c) ?? null,
     weightHistory: c.weightHistory.slice(-5),
-    weeklyWorkouts: c.weeklyWorkouts,
+    weeklyWorkouts: serializeWeeklyWorkouts(c.weeklyWorkouts ?? {}),
     notes: c.notes ?? null,
   }));
 }

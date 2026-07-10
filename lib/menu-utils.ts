@@ -59,6 +59,12 @@ function normalizeDish(d: unknown): MenuDish {
     carbs: Math.round(
       readDishMacro(raw, "carbs", "carbohydrates", "вуглеводи", "вуглевод", "c")
     ),
+    recipe:
+      typeof raw.recipe === "string" && raw.recipe.trim()
+        ? raw.recipe.trim()
+        : typeof raw.instructions === "string" && raw.instructions.trim()
+          ? raw.instructions.trim()
+          : undefined,
   };
 }
 

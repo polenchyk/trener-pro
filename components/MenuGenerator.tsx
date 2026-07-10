@@ -20,6 +20,7 @@ import {
   Client,
   DayMenu,
   GOAL_LABELS,
+  MenuDish,
   WEEK_DAYS,
   WEEK_DAY_SHORT,
   WeekDay,
@@ -44,6 +45,7 @@ import { TelegramIcon, ViberIcon } from "./MessengerIcons";
 import SpeechButton from "./SpeechButton";
 import VoiceInputButton from "./VoiceInputButton";
 import WorkoutPlanner from "./WorkoutPlanner";
+import RecipeModal from "./RecipeModal";
 
 const MAX_CHAT_MESSAGES = 6;
 
@@ -77,6 +79,7 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
   const [justApproved, setJustApproved] = useState(false);
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<number | null>(null);
+  const [recipeDish, setRecipeDish] = useState<MenuDish | null>(null);
 
   const { speak, stop: stopSpeech, isSpeaking, isSupported: speechSupported } = useSpeech();
 
@@ -393,7 +396,18 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
                           <li key={i} className="text-sm text-gray-600">
                             <div className="flex justify-between gap-3">
                               <span className="min-w-0">
-                                {dish.title} — {dish.portion}
+                                <button
+                                  type="button"
+                                  onClick={() => setRecipeDish(dish)}
+                                  className="text-teal-700 hover:underline cursor-pointer text-left inline-flex items-center gap-1 font-medium"
+                                >
+                                  {dish.title}
+                                  <span className="text-xs opacity-80" aria-hidden>
+                                    🍳
+                                  </span>
+                                </button>
+                                {" — "}
+                                {dish.portion}
                               </span>
                               <span className="text-gray-500 whitespace-nowrap shrink-0 font-medium">
                                 {dish.calories} ккал
@@ -571,6 +585,7 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
           )}
         </>
       )}
+      <RecipeModal dish={recipeDish} onClose={() => setRecipeDish(null)} />
     </div>
   );
 }

@@ -41,6 +41,7 @@ interface CoachStore {
 
   /** Тренування на день: порожній текст = день відпочинку */
   setWorkout: (clientId: string, day: WeekDay, text: string) => void;
+  updateWorkouts: (clientId: string, workouts: Partial<Record<WeekDay, string>>) => void;
   /** Додає запис у історію ваги (нове зважування) */
   addWeightEntry: (clientId: string, value: number, date?: string) => void;
   /** Переносить тренування з одного дня на інший */
@@ -144,6 +145,23 @@ export const useCoachStore = create<CoachStore>()(
               weeklyWorkouts[day] = trimmed;
             } else {
               delete weeklyWorkouts[day];
+            }
+            return { ...c, weeklyWorkouts };
+          }),
+        })),
+
+      updateWorkouts: (clientId, workouts) =>
+        set((state) => ({
+          clients: state.clients.map((c) => {
+            if (c.id !== clientId) return c;
+            const weeklyWorkouts = { ...c.weeklyWorkouts };
+            for (const d of Object.keys(workouts) as WeekDay[]) {
+              const trimmed = (workouts[d] ?? "").trim();
+              if (trimmed) {
+                weeklyWorkouts[d] = trimmed;
+              } else {
+                delete weeklyWorkouts[d];
+              }
             }
             return { ...c, weeklyWorkouts };
           }),

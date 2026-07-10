@@ -131,6 +131,8 @@ export interface MenuDish {
   fat: number;
   /** Вуглеводи, г */
   carbs: number;
+  /** Покроковий рецепт приготування */
+  recipe?: string;
 }
 
 /** Меню на один день тижня (може містити додаткові прийоми: snack, snack_1, Перекус тощо) */
