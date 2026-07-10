@@ -408,9 +408,10 @@ const EMPTY_DAY_MENU: DayMenu = {
 
 /** Порожнє тижневе меню (для збереження окремого дня з консультації) */
 export function createEmptyWeeklyMenu(): WeeklyMenu {
-  const days = Object.fromEntries(
-    WEEK_DAYS.map((d) => [d, { ...EMPTY_DAY_MENU, breakfast: [], lunch: [], dinner: [] }])
-  ) as Record<WeekDay, DayMenu>;
+  const days = {} as Record<WeekDay, DayMenu>;
+  for (const day of WEEK_DAYS) {
+    days[day] = { ...EMPTY_DAY_MENU };
+  }
   return {
     title: "Меню на тиждень",
     days,
