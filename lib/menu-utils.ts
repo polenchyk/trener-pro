@@ -1,7 +1,7 @@
 import type { DayMenu, Macros, MenuDish, WeekDay, WeeklyMenu } from "./types";
 import { MEAL_LABELS, WEEK_DAYS } from "./types";
 
-export const DAY_META_KEYS = new Set(["totalCalories", "macros"]);
+export const DAY_META_KEYS = new Set(["totalCalories", "macros", "fiber"]);
 
 const MEAL_KEY_ALIASES: Record<string, keyof typeof MEAL_LABELS> = {
   breakfast: "breakfast",
@@ -26,7 +26,7 @@ function readDishMacro(raw: Record<string, unknown>, ...keys: string[]): number 
     const v = readNum(raw[key]);
     if (v > 0) return v;
   }
-  const nested = raw.macros;
+  const nested = raw.macros ?? raw.macro ?? raw.макроси;
   if (nested && typeof nested === "object") {
     const m = nested as Record<string, unknown>;
     for (const key of keys) {
@@ -53,11 +53,14 @@ function normalizeDish(d: unknown): MenuDish {
     portion: String(raw.portion ?? ""),
     calories: Math.round(readNum(raw.calories)),
     protein: Math.round(
-      readDishMacro(raw, "protein", "proteins", "білки", "білок", "b")
+      readDishMacro(raw, "protein", "proteins", "білки", "білок", "б", "b", "p")
     ),
-    fat: Math.round(readDishMacro(raw, "fat", "fats", "жири", "жир", "f")),
+    fat: Math.round(readDishMacro(raw, "fat", "fats", "жири", "жир", "ж", "f")),
     carbs: Math.round(
-      readDishMacro(raw, "carbs", "carbohydrates", "вуглеводи", "вуглевод", "c")
+      readDishMacro(raw, "carbs", "carbohydrates", "вуглеводи", "вуглевод", "в", "c")
+    ),
+    fiber: Math.round(
+      readDishMacro(raw, "fiber", "fibre", "клітковина", "кл", "волокна")
     ),
     recipe:
       typeof raw.recipe === "string" && raw.recipe.trim()
@@ -73,6 +76,7 @@ function fillMissingDishMacros(day: DayMenu): DayMenu {
   const result: DayMenu = { ...day };
   const slots: { key: string; index: number }[] = [];
   let totalDishMacros = 0;
+  let totalDishFiber = 0;
 
   for (const key of getMealKeys(day)) {
     const dishes = (day[key] as unknown[]).filter(isValidDish).map(normalizeDish);
@@ -80,15 +84,24 @@ function fillMissingDishMacros(day: DayMenu): DayMenu {
     dishes.forEach((dish, index) => {
       slots.push({ key, index });
       totalDishMacros += dish.protein + dish.fat + dish.carbs;
+      totalDishFiber += dish.fiber || 0;
     });
   }
 
-  if (totalDishMacros > 0 || slots.length === 0) return result;
+  if (slots.length === 0) return result;
 
-  const dayProtein = Math.round(readNum(day.macros?.protein));
-  const dayFat = Math.round(readNum(day.macros?.fat));
-  const dayCarbs = Math.round(readNum(day.macros?.carbs));
-  if (dayProtein + dayFat + dayCarbs === 0) return result;
+  const dayMacros = readDayMacros(day);
+  const dayMacroSum = dayMacros.protein + dayMacros.fat + dayMacros.carbs;
+  const dayFiber = Math.round(readNum(day.fiber));
+
+  const needsMacroFill =
+    dayMacroSum > 0 &&
+    (totalDishMacros === 0 ||
+      Math.abs(totalDishMacros - dayMacroSum) > Math.max(3, dayMacroSum * 0.08));
+
+  const needsFiberFill = dayFiber > 0 && totalDishFiber === 0;
+
+  if (!needsMacroFill && !needsFiberFill) return result;
 
   const allDishes = slots.map(({ key, index }) => (result[key] as MenuDish[])[index]);
   const totalCal = allDishes.reduce((s, d) => s + d.calories, 0);
@@ -99,9 +112,10 @@ function fillMissingDishMacros(day: DayMenu): DayMenu {
     const share = dish.calories / totalCal;
     (result[key] as MenuDish[])[index] = {
       ...dish,
-      protein: Math.round(dayProtein * share),
-      fat: Math.round(dayFat * share),
-      carbs: Math.round(dayCarbs * share),
+      protein: needsMacroFill ? Math.round(dayMacros.protein * share) : dish.protein,
+      fat: needsMacroFill ? Math.round(dayMacros.fat * share) : dish.fat,
+      carbs: needsMacroFill ? Math.round(dayMacros.carbs * share) : dish.carbs,
+      fiber: needsFiberFill ? Math.round(dayFiber * share) : dish.fiber,
     };
   }
 
@@ -109,10 +123,17 @@ function fillMissingDishMacros(day: DayMenu): DayMenu {
 }
 
 function readDayMacros(day: DayMenu): Macros {
+  const raw = (
+    day.macros && typeof day.macros === "object" ? day.macros : {}
+  ) as Record<string, unknown>;
   return {
-    protein: Math.round(readNum(day.macros?.protein)),
-    fat: Math.round(readNum(day.macros?.fat)),
-    carbs: Math.round(readNum(day.macros?.carbs)),
+    protein: Math.round(
+      readDishMacro(raw, "protein", "proteins", "білки", "білок", "б", "b", "p")
+    ),
+    fat: Math.round(readDishMacro(raw, "fat", "fats", "жири", "жир", "ж", "f")),
+    carbs: Math.round(
+      readDishMacro(raw, "carbs", "carbohydrates", "вуглеводи", "вуглевод", "в", "c")
+    ),
   };
 }
 export function getMealKeys(day: DayMenu): string[] {
@@ -176,26 +197,51 @@ export function getMealsFromDay(day: DayMenu): DayMealBlock[] {
     .sort((a, b) => mealSortOrder(a.key) - mealSortOrder(b.key));
 }
 
-/** Підсумок калорій та БЖВ з усіх страв усіх прийомів їжі */
-export function computeDayTotals(day: DayMenu): { totalCalories: number; macros: Macros } {
+/** Сума БЖВ і калорій з усіх страв дня (після нормалізації) */
+export function sumDayDishMacros(day: DayMenu): {
+  totalCalories: number;
+  protein: number;
+  fat: number;
+  carbs: number;
+  fiber: number;
+} {
   let totalCalories = 0;
   let protein = 0;
   let fat = 0;
   let carbs = 0;
+  let fiber = 0;
 
   for (const { dishes } of getMealsFromDay(day)) {
     for (const dish of dishes) {
-      totalCalories += dish.calories;
-      protein += dish.protein;
-      fat += dish.fat;
-      carbs += dish.carbs;
+      totalCalories += dish.calories || 0;
+      protein += dish.protein || 0;
+      fat += dish.fat || 0;
+      carbs += dish.carbs || 0;
+      fiber += dish.fiber || 0;
     }
   }
 
-  const fromDishes: Macros = {
+  return {
+    totalCalories: Math.round(totalCalories),
     protein: Math.round(protein),
     fat: Math.round(fat),
     carbs: Math.round(carbs),
+    fiber: Math.round(fiber),
+  };
+}
+
+/** Підсумок калорій, БЖВ та клітковини з усіх страв */
+export function computeDayTotals(day: DayMenu): {
+  totalCalories: number;
+  macros: Macros;
+  fiber: number;
+} {
+  const sums = sumDayDishMacros(day);
+
+  const fromDishes: Macros = {
+    protein: sums.protein,
+    fat: sums.fat,
+    carbs: sums.carbs,
   };
 
   const dishMacroSum = fromDishes.protein + fromDishes.fat + fromDishes.carbs;
@@ -207,9 +253,13 @@ export function computeDayTotals(day: DayMenu): { totalCalories: number; macros:
         ? fallbackMacros
         : fromDishes;
 
+  const fiber =
+    sums.fiber > 0 ? sums.fiber : Math.round(readNum(day.fiber));
+
   return {
-    totalCalories: Math.round(totalCalories) || Math.round(readNum(day.totalCalories)),
+    totalCalories: sums.totalCalories || Math.round(readNum(day.totalCalories)),
     macros,
+    fiber,
   };
 }
 
@@ -221,6 +271,7 @@ export function normalizeDayMenu(day: DayMenu): DayMenu {
     ...filled,
     totalCalories: totals.totalCalories,
     macros: totals.macros,
+    fiber: totals.fiber,
   };
 }
 
@@ -229,7 +280,8 @@ export function formatDishMacros(dish: MenuDish): string {
   const p = Math.round(dish.protein || 0);
   const f = Math.round(dish.fat || 0);
   const c = Math.round(dish.carbs || 0);
-  return `Б: ${p}г | Ж: ${f}г | В: ${c}г`;
+  const fiber = Math.round(dish.fiber || 0);
+  return `Б: ${p}г | Ж: ${f}г | В: ${c}г | Кл: ${fiber}г`;
 }
 
 function isValidDayMenu(day: unknown): day is DayMenu {
@@ -343,4 +395,26 @@ export function isGlobalMenuInstruction(instruction: string): boolean {
   const mentionsDay = WEEK_DAYS.some((d) => lower.includes(d.toLowerCase()));
   if (mentionsDay) return false;
   return /меню|білк|бжв|калор|макро|вуглев|жир|раціон|тижден/i.test(lower);
+}
+
+const EMPTY_DAY_MENU: DayMenu = {
+  totalCalories: 0,
+  macros: { protein: 0, fat: 0, carbs: 0 },
+  fiber: 0,
+  breakfast: [],
+  lunch: [],
+  dinner: [],
+};
+
+/** Порожнє тижневе меню (для збереження окремого дня з консультації) */
+export function createEmptyWeeklyMenu(): WeeklyMenu {
+  const days = Object.fromEntries(
+    WEEK_DAYS.map((d) => [d, { ...EMPTY_DAY_MENU, breakfast: [], lunch: [], dinner: [] }])
+  ) as Record<WeekDay, DayMenu>;
+  return {
+    title: "Меню на тиждень",
+    days,
+    tips: [],
+    approved: false,
+  };
 }

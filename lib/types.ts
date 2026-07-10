@@ -23,6 +23,22 @@ export interface Macros {
   carbs: number;
 }
 
+/** Норми макронутрієнтів на кг ваги тіла (г/кг) */
+export interface MacroNormsPerKg {
+  protein: number;
+  fat: number;
+  carbs: number;
+}
+
+export const DEFAULT_MACRO_NORMS_PER_KG: MacroNormsPerKg = {
+  protein: 2.5,
+  fat: 1.3,
+  carbs: 3.0,
+};
+
+/** Добова норма клітковини, г (не г/кг) */
+export const DEFAULT_TARGET_FIBER = 25;
+
 /** Готові фітнес-аватарки на вибір */
 export const PRESET_AVATARS = ["💪", "🏃‍♀️", "🏋️‍♂️", "🧘‍♀️", "🚴", "🤸‍♀️"] as const;
 
@@ -64,6 +80,10 @@ export interface Client {
   /** Добова норма калорій (авторозрахунок, якщо не введена вручну) */
   calories: number;
   macros: Macros;
+  /** Норми БЖВ на кг ваги (база для розрахунків) */
+  macroNormsPerKg: MacroNormsPerKg;
+  /** Добова норма клітковини, г */
+  targetFiber: number;
   /** Історія зважувань (від старих до нових) */
   weightHistory: WeightEntry[];
   /** Розклад тренувань: день тижня → опис (немає ключа = відпочинок) */
@@ -131,6 +151,8 @@ export interface MenuDish {
   fat: number;
   /** Вуглеводи, г */
   carbs: number;
+  /** Клітковина, г */
+  fiber: number;
   /** Покроковий рецепт приготування */
   recipe?: string;
 }
@@ -139,6 +161,8 @@ export interface MenuDish {
 export interface DayMenu {
   totalCalories: number;
   macros: Macros;
+  /** Сума клітковини за день, г */
+  fiber?: number;
   breakfast: MenuDish[];
   lunch: MenuDish[];
   dinner: MenuDish[];

@@ -1,11 +1,13 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, UserPlus, Check, Camera, Calculator } from "lucide-react";
 import { useCoachStore } from "@/lib/store";
 import {
   ACTIVITY_LEVELS,
   Client,
+  DEFAULT_MACRO_NORMS_PER_KG,
+  DEFAULT_TARGET_FIBER,
   Goal,
   GOAL_LABELS,
   latestWeight,
@@ -13,6 +15,8 @@ import {
   Sex,
   SEX_LABELS,
 } from "@/lib/types";
+import { calcMacrosFromWeight } from "@/lib/macro-utils";
+import { suggestNutritionNorms } from "@/lib/macro-norms";
 import { calcDailyCalories } from "@/lib/calories";
 import { fileToResizedDataUrl } from "@/lib/image";
 
@@ -41,9 +45,22 @@ export default function ClientForm({ client, onClose }: ClientFormProps) {
   const [age, setAge] = useState(client?.age ? String(client.age) : "");
   const [activityLevel, setActivityLevel] = useState(client?.activityLevel ?? 1.375);
   const [calories, setCalories] = useState(client?.calories ? String(client.calories) : "");
+  const [proteinPerKg, setProteinPerKg] = useState(
+    String(client?.macroNormsPerKg?.protein ?? DEFAULT_MACRO_NORMS_PER_KG.protein)
+  );
+  const [fatPerKg, setFatPerKg] = useState(
+    String(client?.macroNormsPerKg?.fat ?? DEFAULT_MACRO_NORMS_PER_KG.fat)
+  );
+  const [carbsPerKg, setCarbsPerKg] = useState(
+    String(client?.macroNormsPerKg?.carbs ?? DEFAULT_MACRO_NORMS_PER_KG.carbs)
+  );
+  const [fiberGrams, setFiberGrams] = useState(
+    String(client?.targetFiber ?? DEFAULT_TARGET_FIBER)
+  );
   const [notes, setNotes] = useState(client?.notes ?? "");
   const [avatar, setAvatar] = useState<string | undefined>(client?.avatar);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const skipAutoNormsOnce = useRef(isEdit);
 
   const isPhotoAvatar = avatar?.startsWith("data:image/");
 
@@ -65,6 +82,18 @@ export default function ClientForm({ client, onClose }: ClientFormProps) {
 
   const isValid = name.trim().length > 0 && (Number(calories) > 0 || canAutoCalc);
 
+  useEffect(() => {
+    if (skipAutoNormsOnce.current) {
+      skipAutoNormsOnce.current = false;
+      return;
+    }
+    const { macroNormsPerKg, targetFiber } = suggestNutritionNorms(goal, activityLevel);
+    setProteinPerKg(String(macroNormsPerKg.protein));
+    setFatPerKg(String(macroNormsPerKg.fat));
+    setCarbsPerKg(String(macroNormsPerKg.carbs));
+    setFiberGrams(String(targetFiber));
+  }, [goal, activityLevel, sex]);
+
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -81,6 +110,21 @@ export default function ClientForm({ client, onClose }: ClientFormProps) {
     e.preventDefault();
     if (!isValid) return;
 
+    const macroNormsPerKg = {
+      protein: Number(proteinPerKg) > 0 ? Number(proteinPerKg) : DEFAULT_MACRO_NORMS_PER_KG.protein,
+      fat: Number(fatPerKg) > 0 ? Number(fatPerKg) : DEFAULT_MACRO_NORMS_PER_KG.fat,
+      carbs: Number(carbsPerKg) > 0 ? Number(carbsPerKg) : DEFAULT_MACRO_NORMS_PER_KG.carbs,
+    };
+    const targetFiber =
+      Number(fiberGrams) > 0 ? Math.round(Number(fiberGrams)) : DEFAULT_TARGET_FIBER;
+    const weightForMacros = isEdit
+      ? (latestWeight(client!) ?? (Number(newWeighIn) || 0))
+      : Number(weight) || 0;
+    const macrosFromNorms =
+      weightForMacros > 0
+        ? calcMacrosFromWeight(weightForMacros, macroNormsPerKg)
+        : client?.macros ?? { protein: 0, fat: 0, carbs: 0 };
+
     const baseData = {
       name: name.trim(),
       goal,
@@ -89,7 +133,9 @@ export default function ClientForm({ client, onClose }: ClientFormProps) {
       age: Number(age) || 0,
       activityLevel,
       calories: Number(calories) > 0 ? Number(calories) : autoCalories,
-      macros: client?.macros ?? { protein: 0, fat: 0, carbs: 0 },
+      macroNormsPerKg,
+      targetFiber,
+      macros: macrosFromNorms,
       avatar,
       notes: notes.trim() || undefined,
     };
@@ -344,6 +390,88 @@ export default function ClientForm({ client, onClose }: ClientFormProps) {
             {!calories && !canAutoCalc && (
               <p className="text-xs text-gray-400 mt-1.5 px-0.5">
                 Для авторозрахунку заповніть вагу, зріст і вік
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Норми БЖВ (г/кг ваги) та клітковина
+            </label>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div>
+                <label className="block text-[11px] text-gray-500 mb-1">Білок</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.1"
+                  min="0"
+                  value={proteinPerKg}
+                  onChange={(e) => setProteinPerKg(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-gray-500 mb-1">Жири</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.1"
+                  min="0"
+                  value={fatPerKg}
+                  onChange={(e) => setFatPerKg(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-gray-500 mb-1">Вуглеводи</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.1"
+                  min="0"
+                  value={carbsPerKg}
+                  onChange={(e) => setCarbsPerKg(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-gray-500 mb-1">Клітковина (г)</label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  step="1"
+                  min="0"
+                  value={fiberGrams}
+                  onChange={(e) => setFiberGrams(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1.5 px-0.5">
+              Авторозрахунок за ціллю та активністю. Можна змінити вручну.
+            </p>
+            {weightForCalc > 0 && (
+              <p className="text-xs text-teal-700 mt-1 px-0.5">
+                При вазі {weightForCalc} кг: Б{" "}
+                {calcMacrosFromWeight(weightForCalc, {
+                  protein: Number(proteinPerKg) || DEFAULT_MACRO_NORMS_PER_KG.protein,
+                  fat: Number(fatPerKg) || DEFAULT_MACRO_NORMS_PER_KG.fat,
+                  carbs: Number(carbsPerKg) || DEFAULT_MACRO_NORMS_PER_KG.carbs,
+                }).protein}{" "}
+                г · Ж{" "}
+                {calcMacrosFromWeight(weightForCalc, {
+                  protein: Number(proteinPerKg) || DEFAULT_MACRO_NORMS_PER_KG.protein,
+                  fat: Number(fatPerKg) || DEFAULT_MACRO_NORMS_PER_KG.fat,
+                  carbs: Number(carbsPerKg) || DEFAULT_MACRO_NORMS_PER_KG.carbs,
+                }).fat}{" "}
+                г · В{" "}
+                {calcMacrosFromWeight(weightForCalc, {
+                  protein: Number(proteinPerKg) || DEFAULT_MACRO_NORMS_PER_KG.protein,
+                  fat: Number(fatPerKg) || DEFAULT_MACRO_NORMS_PER_KG.fat,
+                  carbs: Number(carbsPerKg) || DEFAULT_MACRO_NORMS_PER_KG.carbs,
+                }).carbs}{" "}
+                г · Кл {Number(fiberGrams) || DEFAULT_TARGET_FIBER} г
               </p>
             )}
           </div>

@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { Client, DayMenu, WeekDay, WeeklyMenu } from "./types";
+import { DEFAULT_MACRO_NORMS_PER_KG, DEFAULT_TARGET_FIBER } from "./types";
+import { suggestNutritionNorms } from "./macro-norms";
+import { calcMacrosFromWeight } from "./macro-utils";
+import { createEmptyWeeklyMenu } from "./menu-utils";
 
 /** Нормалізує клієнта зі старих версій даних (міграція, бекапи) */
 function normalizeClient(raw: Client & { weight?: number }): Client {
@@ -17,6 +21,8 @@ function normalizeClient(raw: Client & { weight?: number }): Client {
         ? [{ date: new Date().toISOString().slice(0, 10), value: weight }]
         : []),
     weeklyWorkouts: client.weeklyWorkouts ?? {},
+    macroNormsPerKg: client.macroNormsPerKg ?? { ...DEFAULT_MACRO_NORMS_PER_KG },
+    targetFiber: client.targetFiber ?? DEFAULT_TARGET_FIBER,
   };
 }
 
@@ -26,6 +32,10 @@ interface CoachStore {
   menus: Record<string, WeeklyMenu>;
   /** UI-стан: чи розгорнуте меню в картці клієнта (не персистується) */
   isMenuExpanded: Record<string, boolean>;
+  /** Режим консультації по днях (не персистується) */
+  isConsulting: Record<string, Partial<Record<WeekDay, boolean>>>;
+  /** Чернетка меню дня з консультації до збереження (не персистується) */
+  pendingConsultMenus: Record<string, Partial<Record<WeekDay, DayMenu>>>;
 
   addClient: (data: Omit<Client, "id" | "createdAt">) => void;
   updateClient: (id: string, data: Partial<Omit<Client, "id" | "createdAt">>) => void;
@@ -34,10 +44,16 @@ interface CoachStore {
   setMenu: (clientId: string, menu: WeeklyMenu) => void;
   /** Точкове оновлення окремих днів (після AI-коригування) */
   updateMenuDays: (clientId: string, days: Partial<Record<WeekDay, DayMenu>>) => void;
+  /** Зберегти меню одного дня (створює тижневе меню, якщо його ще немає) */
+  saveDayMenu: (clientId: string, day: WeekDay, dayMenu: DayMenu) => void;
   /** Фіксує меню (approved: true) */
   approveMenu: (clientId: string) => void;
   clearMenu: (clientId: string) => void;
   setMenuExpanded: (clientId: string, expanded: boolean) => void;
+
+  setConsulting: (clientId: string, day: WeekDay, active: boolean) => void;
+  setPendingConsultMenu: (clientId: string, day: WeekDay, menu: DayMenu | null) => void;
+  clearConsultation: (clientId: string, day: WeekDay) => void;
 
   /** Тренування на день: порожній текст = день відпочинку */
   setWorkout: (clientId: string, day: WeekDay, text: string) => void;
@@ -56,20 +72,38 @@ export const useCoachStore = create<CoachStore>()(
       clients: [],
       menus: {},
       isMenuExpanded: {},
+      isConsulting: {},
+      pendingConsultMenus: {},
 
       addClient: (data) =>
-        set((state) => ({
-          clients: [
-            {
-              ...data,
-              weightHistory: data.weightHistory ?? [],
-              weeklyWorkouts: data.weeklyWorkouts ?? {},
-              id: crypto.randomUUID(),
-              createdAt: Date.now(),
-            },
-            ...state.clients,
-          ],
-        })),
+        set((state) => {
+          const suggested = suggestNutritionNorms(
+            data.goal,
+            data.activityLevel ?? 1.375
+          );
+          const macroNormsPerKg = data.macroNormsPerKg ?? suggested.macroNormsPerKg;
+          const targetFiber = data.targetFiber ?? suggested.targetFiber;
+          const weight = data.weightHistory?.[data.weightHistory.length - 1]?.value ?? 0;
+          const macrosFromWeight =
+            weight > 0
+              ? calcMacrosFromWeight(weight, macroNormsPerKg)
+              : data.macros ?? { protein: 0, fat: 0, carbs: 0 };
+          return {
+            clients: [
+              {
+                ...data,
+                macroNormsPerKg,
+                targetFiber,
+                macros: macrosFromWeight,
+                weightHistory: data.weightHistory ?? [],
+                weeklyWorkouts: data.weeklyWorkouts ?? {},
+                id: crypto.randomUUID(),
+                createdAt: Date.now(),
+              },
+              ...state.clients,
+            ],
+          };
+        }),
 
       updateClient: (id, data) =>
         set((state) => ({
@@ -114,6 +148,21 @@ export const useCoachStore = create<CoachStore>()(
           };
         }),
 
+      saveDayMenu: (clientId, day, dayMenu) =>
+        set((state) => {
+          const current = state.menus[clientId] ?? createEmptyWeeklyMenu();
+          return {
+            menus: {
+              ...state.menus,
+              [clientId]: {
+                ...current,
+                days: { ...current.days, [day]: dayMenu },
+                approved: false,
+              },
+            },
+          };
+        }),
+
       approveMenu: (clientId) =>
         set((state) => {
           const current = state.menus[clientId];
@@ -134,6 +183,44 @@ export const useCoachStore = create<CoachStore>()(
         set((state) => ({
           isMenuExpanded: { ...state.isMenuExpanded, [clientId]: expanded },
         })),
+
+      setConsulting: (clientId, day, active) =>
+        set((state) => {
+          const clientDays = { ...(state.isConsulting[clientId] ?? {}) };
+          if (active) {
+            clientDays[day] = true;
+          } else {
+            delete clientDays[day];
+          }
+          return {
+            isConsulting: { ...state.isConsulting, [clientId]: clientDays },
+          };
+        }),
+
+      setPendingConsultMenu: (clientId, day, menu) =>
+        set((state) => {
+          const clientDays = { ...(state.pendingConsultMenus[clientId] ?? {}) };
+          if (menu) {
+            clientDays[day] = menu;
+          } else {
+            delete clientDays[day];
+          }
+          return {
+            pendingConsultMenus: { ...state.pendingConsultMenus, [clientId]: clientDays },
+          };
+        }),
+
+      clearConsultation: (clientId, day) =>
+        set((state) => {
+          const consulting = { ...(state.isConsulting[clientId] ?? {}) };
+          const pending = { ...(state.pendingConsultMenus[clientId] ?? {}) };
+          delete consulting[day];
+          delete pending[day];
+          return {
+            isConsulting: { ...state.isConsulting, [clientId]: consulting },
+            pendingConsultMenus: { ...state.pendingConsultMenus, [clientId]: pending },
+          };
+        }),
 
       setWorkout: (clientId, day, text) =>
         set((state) => ({
@@ -202,21 +289,32 @@ export const useCoachStore = create<CoachStore>()(
           clients: (data.clients ?? []).map(normalizeClient),
           menus: data.menus ?? {},
           isMenuExpanded: {},
+          isConsulting: {},
+          pendingConsultMenus: {},
         })),
     }),
     {
       name: "coachmenu-pro-storage",
       storage: createJSONStorage(() => localStorage),
-      version: 4,
+      version: 6,
       migrate: (persisted, version) => {
         let state = persisted as CoachStore;
-        // v0/v1 зберігали одноденні меню несумісного формату — скидаємо лише меню
         if (version < 2) {
           state = { ...state, menus: {} };
         }
-        // v3 додала стать/зріст/вік/активність; v4 перетворила вагу на історію
-        // зважувань і додала розклад тренувань — normalizeClient покриває все
         if (version < 4) {
+          state = {
+            ...state,
+            clients: (state.clients ?? []).map(normalizeClient),
+          };
+        }
+        if (version < 5) {
+          state = {
+            ...state,
+            clients: (state.clients ?? []).map(normalizeClient),
+          };
+        }
+        if (version < 6) {
           state = {
             ...state,
             clients: (state.clients ?? []).map(normalizeClient),
