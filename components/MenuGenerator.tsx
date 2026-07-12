@@ -34,7 +34,7 @@ import {
   hasDayMenuContent,
   normalizeDayMenu,
 } from "@/lib/menu-utils";
-import { isAdjustMenuCommand, isFormMenuCommand } from "@/lib/consult-menu";
+import { isFormMenuCommand, isMenuSpecificAdjustCommand } from "@/lib/consult-menu";
 import {
   formatTargetMacrosBlock,
   getClientMacroNorms,
@@ -158,6 +158,9 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
     name: client.name,
     goal: GOAL_LABELS[client.goal],
     sex: SEX_LABELS[client.sex],
+    age: client.age > 0 ? client.age : undefined,
+    height: client.height > 0 ? client.height : undefined,
+    activityLevel: client.activityLevel,
     calories: client.calories,
     protein: targetMacros.protein,
     fat: targetMacros.fat,
@@ -167,6 +170,8 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
     targetFiber,
     weight: client.weightHistory[client.weightHistory.length - 1]?.value,
     notes: client.notes,
+    weeklyWorkouts: client.weeklyWorkouts,
+    weightHistory: client.weightHistory,
   };
 
   const savedDayMenu = menu?.days[activeDay];
@@ -356,7 +361,7 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
     try {
       const currentMenu = pendingDayMenu ?? savedDayMenu;
       const shouldAdjust =
-        hasDayMenuContent(currentMenu) && isAdjustMenuCommand(instruction);
+        hasDayMenuContent(currentMenu) && isMenuSpecificAdjustCommand(instruction);
 
       if (shouldAdjust) {
         await sendAdjust(instruction, historyForApi);
@@ -521,7 +526,7 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
             <>
               {!hasDayMenu && !pendingDayMenu && !isConsultingActive && (
                 <p className="text-sm text-gray-400 text-center py-2">
-                  Напишіть список продуктів у чаті для {activeDay} 👇
+                  Поставте будь-яке питання ШІ-коучу або напишіть продукти для меню на {activeDay} 👇
                 </p>
               )}
 
@@ -618,14 +623,12 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
               <div className="rounded-2xl border border-gray-100 bg-gray-50/70 px-3.5 py-3.5">
                 <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 mb-2">
                   <Wand2 size={14} />
-                  {isConsultingActive
-                    ? `Консультація · меню на ${activeDay}`
-                    : `Скласти меню на ${activeDay}`}
+                  ШІ-коуч · {activeDay}
                 </p>
                 <p className="text-[11px] text-sky-700 mb-2 px-0.5">
-                  Напишіть продукти або коригуйте меню. Мікрофон: диктуйте з паузами — запис
-                  зупиниться лише кнопкою «Стоп» або «Надіслати». Страви можна правити вручну або
-                  ШІ-командою під кожною тарілкою.
+                  Спілкуйтесь на будь-які теми: тренування, техніка, відновлення, аналізи. Для
+                  меню — продукти або команди коригування. Мікрофон: диктуйте з паузами — запис
+                  зупиниться лише кнопкою «Стоп» або «Надіслати».
                 </p>
                 {chatMessages.length > 0 && (
                   <div className="space-y-2 mb-3 max-h-48 overflow-y-auto">
@@ -674,7 +677,7 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
                     type="text"
                     value={adjustInput}
                     onChange={(e) => setAdjustInput(e.target.value)}
-                    placeholder="Продукти або відповідь на питання ШІ..."
+                    placeholder="Питання про тренування, меню, здоров'я..."
                     disabled={adjusting}
                     className="flex-1 min-w-0 rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-60"
                   />

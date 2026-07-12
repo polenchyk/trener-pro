@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { buildClientContextBlock } from "@/lib/coach-prompt";
 import { CONSULT_MENU_SYSTEM_PROMPT } from "@/lib/prompt";
 import { isFormMenuCommand, parseConsultMenuResponse } from "@/lib/consult-menu";
 import type { DayMenu, WeekDay } from "@/lib/types";
@@ -22,19 +23,23 @@ interface ConsultMenuBody {
     name: string;
     goal: string;
     weight?: number;
+    age?: number;
+    height?: number;
+    activityLevel?: number;
     macroNormsPerKg: { protein: number; fat: number; carbs: number };
     targetMacros: { protein: number; fat: number; carbs: number };
     targetFiber?: number;
     calories?: number;
     notes?: string;
     sex?: string;
+    weeklyWorkouts?: Partial<Record<WeekDay, string>>;
+    weightHistory?: { date: string; value: number }[];
   };
   activeDay: WeekDay;
   workoutForDay?: string;
   instruction: string;
   messages?: ChatMessage[];
   forceForm?: boolean;
-  /** Поточне меню дня (для коригування) */
   currentDayMenu?: DayMenu | null;
 }
 
@@ -68,35 +73,40 @@ export async function POST(request: NextRequest) {
   const instruction = body.instruction.trim();
   const history = (body.messages ?? []).slice(-8);
   const forceForm = body.forceForm || isFormMenuCommand(instruction);
-  const norms = c.macroNormsPerKg;
-  const target = c.targetMacros;
   const currentDayMenu = body.currentDayMenu ?? null;
   const hasCurrentMenu = hasDayMenuContent(currentDayMenu);
-  const suggestedOrder = hasCurrentMenu && currentDayMenu
-    ? suggestMealOrderFromInstruction(currentDayMenu, instruction)
-    : null;
+  const suggestedOrder =
+    hasCurrentMenu && currentDayMenu
+      ? suggestMealOrderFromInstruction(currentDayMenu, instruction)
+      : null;
 
-  const contextBlock = [
-    `Клієнт: ${c.name}`,
-    c.sex ? `Стать: ${c.sex}` : "",
-    `Ціль: ${c.goal}`,
-    c.weight ? `Вага: ${c.weight} кг` : "Вага: не вказана",
-    `Норми БЖВ (г/кг): білок ${norms.protein}, жири ${norms.fat}, вуглеводи ${norms.carbs}`,
-    `Розраховані цільові БЖВ на день: білок ${target.protein} г, жири ${target.fat} г, вуглеводи ${target.carbs} г`,
-    c.targetFiber ? `Цільова клітковина: ${c.targetFiber} г/день` : "",
-    c.calories ? `Орієнтир калорій: ${c.calories} ккал` : "",
-    c.notes ? `Особливості: ${c.notes}` : "",
-    `День тижня: ${body.activeDay}`,
-    body.workoutForDay?.trim()
-      ? `Тренування цього дня: ${body.workoutForDay.trim()}`
-      : "Тренування цього дня: відпочинок / не заплановано",
+  const clientBlock = buildClientContextBlock({
+    name: c.name,
+    goal: c.goal,
+    sex: c.sex,
+    age: c.age,
+    height: c.height,
+    weight: c.weight,
+    activityLevel: c.activityLevel,
+    calories: c.calories,
+    macroNormsPerKg: c.macroNormsPerKg,
+    targetMacros: c.targetMacros,
+    targetFiber: c.targetFiber,
+    notes: c.notes,
+    weeklyWorkouts: c.weeklyWorkouts,
+    weightHistory: c.weightHistory,
+    activeDay: body.activeDay,
+    workoutForDay: body.workoutForDay,
+  });
+
+  const menuHints = [
     forceForm
-      ? `ПІДКАЗКА: тренер дав команду сформувати меню — поверни phase "ready" з dayMenu.`
-      : `ПІДКАЗКА: якщо ще не зібрано достатньо відповідей — лишайся в phase "consulting" з питаннями.`,
-    c.weight
-      ? `Цільові БЖВ для клієнта (Вага ${c.weight} кг): Б-${target.protein}г, Ж-${target.fat}г, В-${target.carbs}г, Кл-${c.targetFiber ?? 25}г`
+      ? `ПІДКАЗКА: тренер дав команду сформувати меню — phase "ready" з dayMenu.`
       : "",
-    hasCurrentMenu
+    hasCurrentMenu && !forceForm
+      ? `ПІДКАЗКА: є меню на ${body.activeDay} — змінюй лише якщо інтент = корекція їжі (phase "ready"). Інакше phase "chat".`
+      : "",
+    hasCurrentMenu && currentDayMenu
       ? `Поточне меню на ${body.activeDay} (JSON): ${JSON.stringify(currentDayMenu)}`
       : "",
     hasCurrentMenu && currentDayMenu
@@ -105,12 +115,11 @@ export async function POST(request: NextRequest) {
     suggestedOrder !== null
       ? `Рекомендований order для нового/зміненого прийому їжі: ${suggestedOrder}`
       : "",
-    hasCurrentMenu && !forceForm
-      ? `ПІДКАЗКА: тренер коригує існуюче меню — поверни phase "ready" з оновленим dayMenu (повний об'єкт дня, усі ключі прийомів їжі).`
-      : "",
   ]
     .filter(Boolean)
     .join("\n");
+
+  const contextBlock = [clientBlock, menuHints].filter(Boolean).join("\n\n");
 
   const openaiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: CONSULT_MENU_SYSTEM_PROMPT },

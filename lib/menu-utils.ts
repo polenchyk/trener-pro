@@ -1,5 +1,6 @@
 import type { DayMenu, Macros, MealSlot, MenuDish, WeekDay, WeeklyMenu } from "./types";
 import { MEAL_LABELS, WEEK_DAYS } from "./types";
+import { enrichDishFromBase } from "./nutrition-base";
 
 export const DAY_META_KEYS = new Set([
   "totalCalories",
@@ -65,7 +66,7 @@ function isValidDish(d: unknown): d is MenuDish {
 
 function normalizeDish(d: unknown): MenuDish {
   const raw = (d && typeof d === "object" ? d : {}) as Record<string, unknown>;
-  return {
+  const dish: MenuDish = {
     title: String(raw.title ?? ""),
     portion: String(raw.portion ?? ""),
     calories: Math.round(readNum(raw.calories)),
@@ -85,7 +86,17 @@ function normalizeDish(d: unknown): MenuDish {
         : typeof raw.instructions === "string" && raw.instructions.trim()
           ? raw.instructions.trim()
           : undefined,
+    manualOverride: raw.manualOverride === true,
+    baseProductId:
+      typeof raw.baseProductId === "string" ? raw.baseProductId : undefined,
+    micros:
+      raw.micros && typeof raw.micros === "object"
+        ? (raw.micros as MenuDish["micros"])
+        : undefined,
   };
+
+  // Жорстка база: стандартизуємо БЖУ моно-продуктів (окрім ручного перезапису)
+  return enrichDishFromBase(dish);
 }
 
 function legacyKeyToOrder(key: string): number {

@@ -25,7 +25,8 @@ export function patchDishInDayMenu(
     if (meal.id !== mealId) return meal;
     const dishes = meal.dishes.map((dish, i) => {
       if (i !== dishIndex) return dish;
-      let updated = { ...dish, ...patch };
+      // Ручний перезапис: фіксуємо власні значення, база більше не перераховує цю страву
+      let updated: MenuDish = { ...dish, ...patch, manualOverride: true };
       if (options?.recalcCaloriesFromMacros) {
         updated = recalcDishCalories(updated);
       }

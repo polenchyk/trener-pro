@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { buildClientContextBlock } from "@/lib/coach-prompt";
 import { ADJUST_MENU_SYSTEM_PROMPT } from "@/lib/prompt";
 import {
   extractMenuDays,
@@ -23,11 +24,20 @@ interface AdjustMenuBody {
     name: string;
     goal: string;
     sex?: string;
+    age?: number;
+    height?: number;
+    weight?: number;
+    activityLevel?: number;
     calories: number;
     protein: number;
     fat: number;
     carbs: number;
+    targetFiber?: number;
+    macroNormsPerKg?: { protein: number; fat: number; carbs: number };
+    targetMacros?: { protein: number; fat: number; carbs: number };
     notes?: string;
+    weeklyWorkouts?: Partial<Record<WeekDay, string>>;
+    weightHistory?: { date: string; value: number }[];
   };
   weeklyMenu?: WeeklyMenu | null;
   menuDays?: Record<WeekDay, unknown>;
@@ -86,13 +96,25 @@ export async function POST(request: NextRequest) {
     ? suggestMealOrderFromInstruction(activeDayMenu, instruction)
     : null;
 
-  const contextBlock = [
-    `Клієнт: ${c.name}`,
-    c.sex ? `Стать: ${c.sex}` : "",
-    `Ціль: ${c.goal}`,
-    `Добова калорійність: ${c.calories} ккал`,
-    c.notes ? `Особливості: ${c.notes}` : "",
-    body.activeDay ? `Зараз тренер переглядає день: ${body.activeDay}` : "",
+  const clientBlock = buildClientContextBlock({
+    name: c.name,
+    goal: c.goal,
+    sex: c.sex,
+    age: c.age,
+    height: c.height,
+    weight: c.weight,
+    activityLevel: c.activityLevel,
+    calories: c.calories,
+    macroNormsPerKg: c.macroNormsPerKg,
+    targetMacros: c.targetMacros ?? { protein: c.protein, fat: c.fat, carbs: c.carbs },
+    targetFiber: c.targetFiber,
+    notes: c.notes,
+    weeklyWorkouts: c.weeklyWorkouts,
+    weightHistory: c.weightHistory,
+    activeDay: body.activeDay,
+  });
+
+  const menuHints = [
     activeDayMenu
       ? `Таймлайн прийомів їжі на ${body.activeDay}: ${formatMealsForContext(activeDayMenu)}`
       : "",
@@ -100,16 +122,17 @@ export async function POST(request: NextRequest) {
       ? `Рекомендований order для нового/зміненого прийому їжі: ${suggestedOrder}`
       : "",
     globalChange
-      ? `Підказка: запит може стосуватися всього тижня — якщо тренер дає команду змінити, поверни updatedDays для ВСІХ 7 днів.`
+      ? `Підказка: запит може стосуватися всього тижня — якщо інтент = зміна меню, поверни updatedDays для ВСІХ 7 днів.`
       : body.activeDay
-        ? `Підказка: при локальній зміні поверни updatedDays лише для дня «${body.activeDay}» з ПОВНИМ об'єктом дня (усі існуючі ключі прийомів їжі + зміни).`
+        ? `Підказка: при локальній зміні меню поверни updatedDays лише для «${body.activeDay}» з ПОВНИМ об'єктом дня.`
         : "",
-    ``,
     `Поточне тижневе меню клієнта (JSON):`,
     JSON.stringify({ title: body.weeklyMenu?.title ?? "Меню на тиждень", days: menuDays }),
   ]
     .filter(Boolean)
     .join("\n");
+
+  const contextBlock = [clientBlock, menuHints].join("\n\n");
 
   const openaiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: ADJUST_MENU_SYSTEM_PROMPT },

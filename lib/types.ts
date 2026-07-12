@@ -139,6 +139,37 @@ export const MEAL_LABELS: Record<MealKey, { name: string; emoji: string }> = {
   dinner: { name: "Вечеря", emoji: "🌙" },
 };
 
+/** Детальні мікронутрієнти страви (розраховані з жорсткої бази на вагу порції) */
+export interface DishMicros {
+  /** Джерело даних (напр. "Таблиця калорійності") */
+  source: string;
+  /** На яку вагу (г) розраховано */
+  basedOnGrams: number;
+  calories: number;
+  /** Енергетична цінність, кДж */
+  energyKj: number;
+  protein: number;
+  fat: number;
+  carbs: number;
+  fiber: number;
+  /** Зокрема цукор, г */
+  sugar?: number;
+  /** Насичені жири, г */
+  saturatedFat?: number;
+  /** Трансжири, г */
+  transFat?: number;
+  /** Мононенасичені жири, г */
+  monoFat?: number;
+  /** Поліненасичені жири, г */
+  polyFat?: number;
+  /** Холестерин, мг */
+  cholesterol?: number;
+  /** Сіль, г */
+  salt?: number;
+  /** Кальцій, мг */
+  calcium?: number;
+}
+
 /** Страва в межах прийому їжі */
 export interface MenuDish {
   title: string;
@@ -155,6 +186,12 @@ export interface MenuDish {
   fiber: number;
   /** Покроковий рецепт приготування */
   recipe?: string;
+  /** Детальні мікронутрієнти з жорсткої бази (якщо продукт розпізнано) */
+  micros?: DishMicros;
+  /** id продукту з nutrition_base.json, якщо застосовано стандарт */
+  baseProductId?: string;
+  /** Ручний перезапис тренером — не перераховувати з бази */
+  manualOverride?: boolean;
 }
 
 /** Один прийом їжі в динамічному таймлайні дня */

@@ -1,7 +1,7 @@
 import type { DayMenu, WeekDay } from "./types";
 import { tryNormalizeDayMenu } from "./menu-utils";
 
-export type ConsultPhase = "consulting" | "ready";
+export type ConsultPhase = "chat" | "consulting" | "ready";
 
 export interface ConsultMenuResult {
   phase: ConsultPhase;
@@ -29,6 +29,18 @@ const ADJUST_KEYWORDS =
 /** Чи схоже на команду коригування існуючого меню */
 export function isAdjustMenuCommand(text: string): boolean {
   return ADJUST_KEYWORDS.test(text.trim());
+}
+
+const MENU_CONTEXT =
+  /меню|страв|обід|сніданок|вечер|перекус|калор|білок|жир|вуглев|грам|ккал|їж|БЖВ|макрос|клітковин|смузі|гарнір/i;
+
+/** Чи це команда змінити саме меню (не загальне питання про тренування) */
+export function isMenuSpecificAdjustCommand(text: string): boolean {
+  const t = text.trim();
+  if (!isAdjustMenuCommand(t)) return false;
+  if (MENU_CONTEXT.test(t)) return true;
+  if (!t.includes("?") && t.split(/\s+/).length <= 14) return true;
+  return false;
 }
 
 /** Чи схоже на список продуктів (коми, переліки) */
@@ -63,7 +75,7 @@ export function parseConsultMenuResponse(
 ): ConsultMenuResult {
   if (!parsed || typeof parsed !== "object") {
     return {
-      phase: "consulting",
+      phase: "chat",
       explanation: "Не вдалося розібрати відповідь AI. Спробуйте ще раз.",
       dayMenu: null,
     };
@@ -75,18 +87,23 @@ export function parseConsultMenuResponse(
       ? obj.explanation.trim()
       : "Готово.";
 
-  const phase: ConsultPhase =
-    obj.phase === "ready" || obj.dayMenu ? "ready" : "consulting";
-
   let dayMenu: DayMenu | null = null;
   const rawMenu = obj.dayMenu ?? obj.updatedDay ?? obj[activeDay];
   if (rawMenu && typeof rawMenu === "object") {
     dayMenu = tryNormalizeDayMenu(rawMenu);
   }
 
-  if (phase === "ready" && !dayMenu) {
+  if (dayMenu) {
+    return { phase: "ready", explanation, dayMenu };
+  }
+
+  if (obj.phase === "consulting") {
     return { phase: "consulting", explanation, dayMenu: null };
   }
 
-  return { phase: dayMenu ? "ready" : "consulting", explanation, dayMenu };
+  if (obj.phase === "ready") {
+    return { phase: "chat", explanation, dayMenu: null };
+  }
+
+  return { phase: "chat", explanation, dayMenu: null };
 }

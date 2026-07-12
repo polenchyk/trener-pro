@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { buildClientContextBlock } from "@/lib/coach-prompt";
 import { CHAT_SYSTEM_PROMPT } from "@/lib/prompt";
 import { extractMenuDays, tryNormalizeDayMenu } from "@/lib/menu-utils";
 import { WEEK_DAYS, type DayMenu, type WeekDay, type WeeklyMenu } from "@/lib/types";
@@ -16,7 +17,16 @@ interface AskAiBody {
     fat: number;
     carbs: number;
     weight?: number;
+    age?: number;
+    height?: number;
+    activityLevel?: number;
+    sex?: string;
     notes?: string;
+    targetFiber?: number;
+    macroNormsPerKg?: { protein: number; fat: number; carbs: number };
+    targetMacros?: { protein: number; fat: number; carbs: number };
+    weeklyWorkouts?: Partial<Record<WeekDay, string>>;
+    weightHistory?: { date: string; value: number }[];
   };
   /** Поточне тижневе меню клієнта */
   weeklyMenu?: WeeklyMenu | null;
@@ -61,20 +71,26 @@ export async function POST(request: NextRequest) {
   const menuDays = extractMenuDays(body);
 
   const contextPrompt = [
-    `Дані клієнта:`,
-    `• Ім'я: ${c.name}`,
-    `• Ціль: ${c.goal}`,
-    `• Добова калорійність: ${c.calories} ккал`,
-    `• БЖВ: білки ${c.protein} г, жири ${c.fat} г, вуглеводи ${c.carbs} г`,
-    c.weight ? `• Вага: ${c.weight} кг` : "",
-    c.notes ? `• Особливості/побажання: ${c.notes}` : "",
-    ``,
+    buildClientContextBlock({
+      name: c.name,
+      goal: c.goal,
+      sex: c.sex,
+      age: c.age,
+      height: c.height,
+      weight: c.weight,
+      activityLevel: c.activityLevel,
+      calories: c.calories,
+      macroNormsPerKg: c.macroNormsPerKg,
+      targetMacros: c.targetMacros ?? { protein: c.protein, fat: c.fat, carbs: c.carbs },
+      targetFiber: c.targetFiber,
+      notes: c.notes,
+      weeklyWorkouts: c.weeklyWorkouts,
+      weightHistory: c.weightHistory,
+    }),
     menuDays
-      ? `Поточне тижневе меню клієнта (JSON, меню ВЖЕ ІСНУЄ):\n${JSON.stringify({ title: body.weeklyMenu?.title ?? "Меню на тиждень", days: menuDays })}`
-      : `Тижневе меню клієнта ще не згенероване.`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+      ? `\nПоточне тижневе меню клієнта (JSON):\n${JSON.stringify({ title: body.weeklyMenu?.title ?? "Меню на тиждень", days: menuDays })}`
+      : `\nТижневе меню клієнта ще не згенероване.`,
+  ].join("\n");
 
   const history = (Array.isArray(body.history) ? body.history : [])
     .filter((m) => m && (m.role === "user" || m.role === "assistant") && m.content)
