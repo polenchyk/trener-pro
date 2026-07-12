@@ -4,7 +4,13 @@ import { useState } from "react";
 import { Loader2, Wand2 } from "lucide-react";
 import type { DayMenu, MenuDish } from "@/lib/types";
 import { formatDishMacros } from "@/lib/menu-utils";
-import { patchDishInDayMenu, sumMealMacros } from "@/lib/menu-edit";
+import {
+  patchDishInDayMenu,
+  patchIngredientGrams,
+  patchIngredientName,
+  sumMealMacros,
+} from "@/lib/menu-edit";
+import { getNutrition } from "@/lib/food-calc";
 import type { DayMealBlock } from "@/lib/menu-utils";
 
 interface EditableDayMenuProps {
@@ -90,6 +96,8 @@ export default function EditableDayMenu({
               {meal.dishes.map((dish, dishIndex) => {
                 const key = dishKey(meal.id, dishIndex);
                 const busy = Boolean(dishAdjusting[key]) || globalAdjusting;
+                const hasIngredients =
+                  Array.isArray(dish.ingredients) && dish.ingredients.length > 0;
 
                 return (
                   <li
@@ -104,7 +112,7 @@ export default function EditableDayMenu({
                           patchDish(meal.id, dishIndex, { title: e.target.value })
                         }
                         className="flex-1 min-w-[120px] rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                        aria-label="Назва продукту"
+                        aria-label="Назва страви"
                       />
                       <button
                         type="button"
@@ -114,57 +122,137 @@ export default function EditableDayMenu({
                       >
                         🍳
                       </button>
-                      <input
-                        type="text"
-                        value={dish.portion}
-                        onChange={(e) =>
-                          patchDish(meal.id, dishIndex, { portion: e.target.value })
-                        }
-                        className="w-28 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                        aria-label="Порція"
-                        placeholder="150 г"
-                      />
+                      {!hasIngredients && (
+                        <input
+                          type="text"
+                          value={dish.portion}
+                          onChange={(e) =>
+                            patchDish(meal.id, dishIndex, { portion: e.target.value })
+                          }
+                          className="w-28 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          aria-label="Порція"
+                          placeholder="150 г"
+                        />
+                      )}
                     </div>
 
-                    <div className="grid grid-cols-5 gap-1.5">
-                      {(
-                        [
-                          { field: "protein" as const, label: "Б", recalc: true },
-                          { field: "fat" as const, label: "Ж", recalc: true },
-                          { field: "carbs" as const, label: "В", recalc: true },
-                          { field: "fiber" as const, label: "Кл", recalc: false },
-                          { field: "calories" as const, label: "🔥", recalc: false },
-                        ] as const
-                      ).map(({ field, label, recalc }) => (
-                        <div key={field}>
-                          <label className="block text-[9px] text-gray-400 text-center mb-0.5">
-                            {label}
-                          </label>
-                          <input
-                            type="number"
-                            inputMode="decimal"
-                            step="any"
-                            min="0"
-                            value={dish[field] || ""}
-                            onChange={(e) => {
-                              const num = parseNumInput(e.target.value);
-                              patchDish(
-                                meal.id,
-                                dishIndex,
-                                { [field]: num },
-                                recalc
-                              );
-                            }}
-                            className="w-full rounded-lg border border-gray-200 bg-white px-1.5 py-1 text-xs text-center tabular-nums focus:outline-none focus:ring-2 focus:ring-teal-500"
-                          />
+                    {hasIngredients ? (
+                      <div className="space-y-1.5">
+                        {dish.ingredients!.map((ing, ingIndex) => {
+                          const n = getNutrition(ing.name, ing.grams);
+                          return (
+                            <div
+                              key={ingIndex}
+                              className="flex items-center gap-1.5"
+                            >
+                              <input
+                                type="text"
+                                value={ing.name}
+                                onChange={(e) =>
+                                  onDayMenuChange(
+                                    patchIngredientName(
+                                      dayMenu,
+                                      meal.id,
+                                      dishIndex,
+                                      ingIndex,
+                                      e.target.value
+                                    )
+                                  )
+                                }
+                                className={`flex-1 min-w-0 rounded-lg border bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 ${
+                                  ing.found === false
+                                    ? "border-red-300 text-red-600"
+                                    : "border-gray-200 text-gray-700"
+                                }`}
+                                aria-label="Інгредієнт"
+                              />
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  step="any"
+                                  min="0"
+                                  value={ing.grams || ""}
+                                  onChange={(e) =>
+                                    onDayMenuChange(
+                                      patchIngredientGrams(
+                                        dayMenu,
+                                        meal.id,
+                                        dishIndex,
+                                        ingIndex,
+                                        parseNumInput(e.target.value)
+                                      )
+                                    )
+                                  }
+                                  className="w-16 rounded-lg border border-gray-200 bg-white px-1.5 py-1 text-xs text-center tabular-nums focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                  aria-label="Грами"
+                                />
+                                <span className="text-[10px] text-gray-400">г</span>
+                              </div>
+                              <span className="w-20 shrink-0 text-right text-[10px] tabular-nums text-gray-400">
+                                {ing.isVegetable ? (
+                                  <span className="text-emerald-600" title="Овоч — не в калораж дня">
+                                    🥦 {n.kcal} ккал
+                                  </span>
+                                ) : (
+                                  `${n.kcal} ккал`
+                                )}
+                              </span>
+                            </div>
+                          );
+                        })}
+
+                        <p className="text-[10px] text-gray-500 tabular-nums px-0.5 pt-1 border-t border-gray-100">
+                          Разом (без овочів): 🔥 {dish.calories} ккал ·{" "}
+                          {formatDishMacros(dish)}
+                        </p>
+                        <p className="text-[9px] text-emerald-600 px-0.5">
+                          🥦 овочі показані, але не додаються до калоражу дня
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-5 gap-1.5">
+                          {(
+                            [
+                              { field: "protein" as const, label: "Б", recalc: true },
+                              { field: "fat" as const, label: "Ж", recalc: true },
+                              { field: "carbs" as const, label: "В", recalc: true },
+                              { field: "fiber" as const, label: "Кл", recalc: false },
+                              { field: "calories" as const, label: "🔥", recalc: false },
+                            ] as const
+                          ).map(({ field, label, recalc }) => (
+                            <div key={field}>
+                              <label className="block text-[9px] text-gray-400 text-center mb-0.5">
+                                {label}
+                              </label>
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                step="any"
+                                min="0"
+                                value={dish[field] || ""}
+                                onChange={(e) => {
+                                  const num = parseNumInput(e.target.value);
+                                  patchDish(
+                                    meal.id,
+                                    dishIndex,
+                                    { [field]: num },
+                                    recalc
+                                  );
+                                }}
+                                className="w-full rounded-lg border border-gray-200 bg-white px-1.5 py-1 text-xs text-center tabular-nums focus:outline-none focus:ring-2 focus:ring-teal-500"
+                              />
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
 
-                    <p className="text-[10px] text-gray-400 tabular-nums px-0.5">
-                      {formatDishMacros(dish)} · при зміні Б/Ж/В калорії
-                      перераховуються автоматично
-                    </p>
+                        <p className="text-[10px] text-gray-400 tabular-nums px-0.5">
+                          {formatDishMacros(dish)} · при зміні Б/Ж/В калорії
+                          перераховуються автоматично
+                        </p>
+                      </>
+                    )}
 
                     <div className="flex flex-wrap gap-1">
                       {QUICK_DISH_COMMANDS.map((cmd) => (

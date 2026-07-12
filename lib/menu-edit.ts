@@ -1,5 +1,9 @@
-import type { DayMenu, MenuDish } from "./types";
+import type { DayMenu, DishIngredient, MenuDish } from "./types";
 import { computeDayTotals } from "./menu-utils";
+import {
+  isVegetableFood,
+  recalcDishFromIngredients,
+} from "./food-calc";
 
 /** Калорії з БЖВ: Б×4 + В×4 + Ж×9 */
 export function calcCaloriesFromMacros(protein: number, fat: number, carbs: number): number {
@@ -31,6 +35,68 @@ export function patchDishInDayMenu(
         updated = recalcDishCalories(updated);
       }
       return updated;
+    });
+    return { ...meal, dishes };
+  });
+
+  return rebuildDayMenuTotals({ ...day, meals });
+}
+
+/**
+ * Оновлює вагу одного інгредієнта страви й миттєво перераховує КБЖУ страви
+ * через рушій (овочі не входять у калораж), а потім підсумки дня.
+ */
+export function patchIngredientGrams(
+  day: DayMenu,
+  mealId: string,
+  dishIndex: number,
+  ingredientIndex: number,
+  grams: number
+): DayMenu {
+  const meals = day.meals.map((meal) => {
+    if (meal.id !== mealId) return meal;
+    const dishes = meal.dishes.map((dish, i) => {
+      if (i !== dishIndex || !dish.ingredients) return dish;
+      const ingredients = dish.ingredients.map((ing, idx) =>
+        idx === ingredientIndex
+          ? { ...ing, grams: Math.max(0, Math.round(grams)) }
+          : ing
+      );
+      // Ручний перезапис знімаємо — рушій має право перерахувати
+      return recalcDishFromIngredients({
+        ...dish,
+        ingredients,
+        manualOverride: false,
+      });
+    });
+    return { ...meal, dishes };
+  });
+
+  return rebuildDayMenuTotals({ ...day, meals });
+}
+
+/** Оновлює назву інгредієнта (з ре-детекцією овоча) та перераховує страву */
+export function patchIngredientName(
+  day: DayMenu,
+  mealId: string,
+  dishIndex: number,
+  ingredientIndex: number,
+  name: string
+): DayMenu {
+  const meals = day.meals.map((meal) => {
+    if (meal.id !== mealId) return meal;
+    const dishes = meal.dishes.map((dish, i) => {
+      if (i !== dishIndex || !dish.ingredients) return dish;
+      const ingredients: DishIngredient[] = dish.ingredients.map((ing, idx) =>
+        idx === ingredientIndex
+          ? { ...ing, name, isVegetable: isVegetableFood(name) }
+          : ing
+      );
+      return recalcDishFromIngredients({
+        ...dish,
+        ingredients,
+        manualOverride: false,
+      });
     });
     return { ...meal, dishes };
   });

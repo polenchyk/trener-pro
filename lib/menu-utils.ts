@@ -1,6 +1,7 @@
 import type { DayMenu, Macros, MealSlot, MenuDish, WeekDay, WeeklyMenu } from "./types";
 import { MEAL_LABELS, WEEK_DAYS } from "./types";
 import { enrichDishFromBase } from "./nutrition-base";
+import { normalizeIngredients, recalcDishFromIngredients } from "./food-calc";
 
 export const DAY_META_KEYS = new Set([
   "totalCalories",
@@ -56,19 +57,22 @@ function readDishMacro(raw: Record<string, unknown>, ...keys: string[]): number 
 }
 
 function isValidDish(d: unknown): d is MenuDish {
-  return (
-    !!d &&
-    typeof d === "object" &&
-    typeof (d as MenuDish).title === "string" &&
-    readNum((d as Record<string, unknown>).calories) > 0
-  );
+  if (!d || typeof d !== "object") return false;
+  const o = d as Record<string, unknown>;
+  if (typeof o.title !== "string" || !o.title.trim()) return false;
+  // Страва валідна, якщо має калорії АБО список інгредієнтів (можливо, лише овочі)
+  if (readNum(o.calories) > 0) return true;
+  if (Array.isArray(o.ingredients) && o.ingredients.length > 0) return true;
+  return false;
 }
 
 function normalizeDish(d: unknown): MenuDish {
   const raw = (d && typeof d === "object" ? d : {}) as Record<string, unknown>;
+  const ingredients = normalizeIngredients(raw.ingredients);
   const dish: MenuDish = {
     title: String(raw.title ?? ""),
     portion: String(raw.portion ?? ""),
+    ingredients: ingredients.length > 0 ? ingredients : undefined,
     calories: Math.round(readNum(raw.calories)),
     protein: Math.round(
       readDishMacro(raw, "protein", "proteins", "білки", "білок", "б", "b", "p")
@@ -95,7 +99,12 @@ function normalizeDish(d: unknown): MenuDish {
         : undefined,
   };
 
-  // Жорстка база: стандартизуємо БЖУ моно-продуктів (окрім ручного перезапису)
+  // Пріоритет №1: якщо є інгредієнти — рахуємо КБЖУ рушієм (овочі не в калораж)
+  if (dish.ingredients && dish.ingredients.length > 0) {
+    return recalcDishFromIngredients(dish);
+  }
+
+  // Інакше жорстка база: стандартизуємо БЖУ моно-продуктів (окрім ручного перезапису)
   return enrichDishFromBase(dish);
 }
 
@@ -218,7 +227,10 @@ export function cloneDayMenu(day: DayMenu): DayMenu {
       id: m.id,
       title: m.title,
       order: m.order,
-      dishes: m.dishes.map((d) => ({ ...d })),
+      dishes: m.dishes.map((d) => ({
+        ...d,
+        ingredients: d.ingredients?.map((i) => ({ ...i })),
+      })),
     })),
     menu_justification: readMenuJustification(raw),
   };
@@ -286,6 +298,8 @@ function fillMissingDishMacros(day: DayMenu): DayMenu {
 
   for (const { mealIndex, dishIndex } of slots) {
     const dish = meals[mealIndex].dishes[dishIndex];
+    // Страви з інгредієнтами — авторитетні (пораховані рушієм), не чіпаємо
+    if (dish.ingredients && dish.ingredients.length > 0) continue;
     const share = dish.calories / totalCal;
     meals[mealIndex].dishes[dishIndex] = {
       ...dish,

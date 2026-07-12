@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { useState } from "react";
 import type { MenuDish } from "@/lib/types";
 import { formatDishMacros } from "@/lib/menu-utils";
+import { getNutrition } from "@/lib/food-calc";
 import { useSpeech } from "@/lib/useSpeech";
 import SpeechButton from "./SpeechButton";
 
@@ -68,6 +69,10 @@ export default function RecipeModal({ dish, onClose }: RecipeModalProps) {
           </div>
         </div>
 
+        {dish.ingredients && dish.ingredients.length > 0 && (
+          <IngredientsList dish={dish} />
+        )}
+
         {dish.micros && <NutritionFacts dish={dish} />}
 
         <div className="px-6 py-5">
@@ -78,6 +83,44 @@ export default function RecipeModal({ dish, onClose }: RecipeModalProps) {
             {recipeText}
           </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function IngredientsList({ dish }: { dish: MenuDish }) {
+  return (
+    <div className="px-6 py-4">
+      <div className="rounded-2xl border border-teal-100 bg-teal-50/50 px-4 py-3">
+        <h3 className="text-sm font-bold text-gray-900 mb-2">Склад (розраховано з бази)</h3>
+        <ul className="space-y-1">
+          {dish.ingredients!.map((ing, i) => {
+            const n = getNutrition(ing.name, ing.grams);
+            return (
+              <li
+                key={i}
+                className="flex items-center justify-between gap-2 text-sm py-0.5"
+              >
+                <span className="text-gray-700 min-w-0 truncate">
+                  {ing.isVegetable && "🥦 "}
+                  {ing.name}{" "}
+                  <span className="text-gray-400">· {ing.grams} г</span>
+                </span>
+                <span className="shrink-0 tabular-nums text-gray-500 text-xs">
+                  {ing.isVegetable ? (
+                    <span className="text-emerald-600">не в калораж</span>
+                  ) : (
+                    `${n.kcal} ккал · Б${n.protein} Ж${n.fat} В${n.carbs}`
+                  )}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="text-[10px] text-gray-400 mt-2 leading-snug">
+          Овочі/зелень (🥦) показані для об&apos;єму та клітковини, але не додаються до
+          калоражу дня.
+        </p>
       </div>
     </div>
   );

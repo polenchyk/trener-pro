@@ -170,11 +170,25 @@ export interface DishMicros {
   calcium?: number;
 }
 
+/** Один інгредієнт страви (для точного розрахунку через food_database.json) */
+export interface DishIngredient {
+  /** Назва-ключ з food_database.json (напр. "вівсянка (суха)") */
+  name: string;
+  /** Вага порції, г */
+  grams: number;
+  /** Овоч/зелень — показується, але не додається до калоражу дня */
+  isVegetable?: boolean;
+  /** Чи знайдено продукт у базі (інакше КБЖУ = 0) */
+  found?: boolean;
+}
+
 /** Страва в межах прийому їжі */
 export interface MenuDish {
   title: string;
   /** Наприклад: "150 г" або "1 склянка" */
   portion: string;
+  /** Інгредієнти з грамовками — джерело істини для розрахунку КБЖУ */
+  ingredients?: DishIngredient[];
   calories: number;
   /** Білки, г */
   protein: number;

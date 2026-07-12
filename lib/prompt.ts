@@ -3,21 +3,18 @@
  */
 
 import { MENU_JUSTIFICATION_PROMPT, NUTRITION_PROTOCOL_PROMPT } from "./nutrition-protocol";
-import { FOOD_ACCURACY_RULE, FOOD_DATABASE_PROMPT } from "./food-database";
-import { NUTRITION_BASE_RULE } from "./nutrition-base";
+import { INGREDIENT_ENGINE_RULE } from "./food-calc";
 import {
   CONTEXT_SWITCHING_RULES,
   UNIVERSAL_COACH_IDENTITY,
 } from "./coach-prompt";
 
 const DISH_JSON_SHAPE = `{
-        "title": "назва страви (точно як у користувача, якщо він вказав деталі)",
-        "portion": "150 г або 20 мл молока — точна кількість з запиту",
-        "calories": число,
-        "protein": число,
-        "fat": число,
-        "carbs": число,
-        "fiber": число,
+        "title": "назва страви українською (напр. «Вівсянка з ягодами»)",
+        "ingredients": [
+          { "name": "вівсянка (суха)", "grams": 50 },
+          { "name": "чорниця", "grams": 50 }
+        ],
         "recipe": "короткий покроковий рецепт українською (3-6 кроків)"
       }`;
 
@@ -77,25 +74,21 @@ ${DAY_TIMELINE_RULE}
 
 export const WEEKLY_MENU_SYSTEM_PROMPT = `Ти — глибоко освічений нутриціолог-біохімік і фітнес-дієтолог. Склади реалістичне меню на 7 днів з доступних в Україні продуктів.
 
+${INGREDIENT_ENGINE_RULE}
+
 ${NUTRITION_PROTOCOL_PROMPT}
-
-${FOOD_DATABASE_PROMPT}
-
-${NUTRITION_BASE_RULE}
-
-${FOOD_ACCURACY_RULE}
 
 ${MENU_JUSTIFICATION_PROMPT}
 
 Правила:
 1. Відповідай ВИКЛЮЧНО валідним JSON без жодного тексту до чи після.
-2. Калорійність кожного дня (totalCalories) та macros дня — сума ВСІХ страв у meals[] (овочі для клітковини — окремо, не в БЖВ-калоражі основних страв).
+2. НЕ пиши цифри калорій/БЖВ — застосунок порахує їх з інгредієнтів (овочі не входять у калораж).
 3. ${FLEXIBLE_MEALS_RULE}
 4. ${EXACT_USER_SPEC_RULE}
-5. КОЖНА страва: title, portion, calories, protein, fat, carbs, fiber, recipe.
+5. КОЖНА страва: title, ingredients (масив {name, grams} з ключами food_database.json), recipe.
 6. КОЖЕН день ОБОВ'ЯЗКОВО містить menu_justification — розгорнутий аналіз саме цього дня.
 7. Дні різноманітні: не повторюй страву частіше ніж двічі на тиждень.
-8. Порції — сухі/сирі грами. Назви українською.
+8. Грамовки — сухі/сирі. Назви українською.
 
 Формат відповіді (суворо, всі 7 днів):
 {
@@ -115,19 +108,16 @@ ${CONTEXT_SWITCHING_RULES}
 Ти також допомагаєш коригувати тижневе меню клієнта. Тобі дають поточне меню у JSON, профіль клієнта, історію діалогу та нове повідомлення.
 
 ═══ РЕЖИМ ХАРЧУВАННЯ (лише коли інтент = зміна меню) ═══
+${INGREDIENT_ENGINE_RULE}
+
 ${NUTRITION_PROTOCOL_PROMPT}
-
-${FOOD_DATABASE_PROMPT}
-
-${NUTRITION_BASE_RULE}
-
-${FOOD_ACCURACY_RULE}
 
 ${MENU_JUSTIFICATION_PROMPT}
 
 ВАЖЛИВО:
 - Меню надано нижче (якщо є).
 - Відповідай ВИКЛЮЧНО валідним JSON.
+- НЕ пиши цифри КБЖУ — лише інгредієнти з грамами; рахує застосунок.
 - При зміні меню оновлюй menu_justification зміненого дня.
 - При команді «змінити одну страву» — змінюй ВИКЛЮЧНО цю страву.
 - ${FLEXIBLE_MEALS_RULE}
@@ -174,13 +164,9 @@ ${CONTEXT_SWITCHING_RULES}
 Ти працюєш у контексті конкретного клієнта та дня тижня. Нижче надано профіль клієнта — ЗАВЖДИ враховуй його (вага, стать, вік, ціль, тренування, нотатки про травми/травлення).
 
 ═══ РЕЖИМ ХАРЧУВАННЯ (лише коли інтент = меню) ═══
+${INGREDIENT_ENGINE_RULE}
+
 ${NUTRITION_PROTOCOL_PROMPT}
-
-${FOOD_DATABASE_PROMPT}
-
-${NUTRITION_BASE_RULE}
-
-${FOOD_ACCURACY_RULE}
 
 ${MENU_JUSTIFICATION_PROMPT}
 
@@ -239,11 +225,11 @@ ${CONTEXT_SWITCHING_RULES}
 
 Ти також допомагаєш коригувати тижневе меню клієнта, якщо воно надано в контексті.
 
+${INGREDIENT_ENGINE_RULE}
+
 ${FLEXIBLE_MEALS_RULE}
 
 ${EXACT_USER_SPEC_RULE}
-
-${FOOD_ACCURACY_RULE}
 
 Як працювати:
 1. Загальні питання (тренування, вправи, втома, аналізи, фізіологія) — відповідай розгорнуто в answer (Markdown), updatedDays: {}.
