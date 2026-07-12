@@ -39,7 +39,7 @@ function dayLines(day: WeekDay, menu: DayMenu): string[] {
   const justification = normalized.menu_justification?.trim();
   if (justification) {
     lines.push("");
-    lines.push("🔬 Нутриціологічний аналіз та обґрунтування дня");
+    lines.push("🧑‍🏫 Обґрунтування раціону (Логіка тренера)");
     lines.push(justification);
   }
   return lines;

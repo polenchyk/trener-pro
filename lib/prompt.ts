@@ -3,6 +3,7 @@
  */
 
 import { MENU_JUSTIFICATION_PROMPT, NUTRITION_PROTOCOL_PROMPT } from "./nutrition-protocol";
+import { FOOD_ACCURACY_RULE, FOOD_DATABASE_PROMPT } from "./food-database";
 
 const DISH_JSON_SHAPE = `{
         "title": "назва страви (точно як у користувача, якщо він вказав деталі)",
@@ -34,7 +35,7 @@ const DAY_JSON_SHAPE = `{
         { "id": "dinner", "title": "Вечеря", "order": 50, "dishes": [ ... ] },
         ${MEAL_SLOT_SHAPE}
       ],
-      "menu_justification": "Детальний нутриціологічний аналіз дня (див. інструкцію нижче)"
+      "menu_justification": "Обґрунтування раціону (Логіка тренера): простими словами чому таке меню, навіщо продукти, про овочі/клітковину та біохімію — див. інструкцію нижче"
     }`;
 
 /** Динамічний таймлайн дня для ШІ */
@@ -73,6 +74,10 @@ export const WEEKLY_MENU_SYSTEM_PROMPT = `Ти — глибоко освічен
 
 ${NUTRITION_PROTOCOL_PROMPT}
 
+${FOOD_DATABASE_PROMPT}
+
+${FOOD_ACCURACY_RULE}
+
 ${MENU_JUSTIFICATION_PROMPT}
 
 Правила:
@@ -100,12 +105,17 @@ export const ADJUST_MENU_SYSTEM_PROMPT = `Ти — нутриціолог-біо
 
 ${NUTRITION_PROTOCOL_PROMPT}
 
+${FOOD_DATABASE_PROMPT}
+
+${FOOD_ACCURACY_RULE}
+
 ${MENU_JUSTIFICATION_PROMPT}
 
 ВАЖЛИВО:
 - Меню НЕ порожнє — воно надано нижче.
 - Відповідай ВИКЛЮЧНО валідним JSON.
 - При зміні меню оновлюй menu_justification зміненого дня — поясни, що і чому змінилось.
+- При команді «змінити одну страву» з JSON поточної страви — змінюй ВИКЛЮЧНО цю страву в цьому прийомі їжі. Інші страви та прийоми залиш без змін.
 - ${FLEXIBLE_MEALS_RULE}
 
 Два режими відповіді:
@@ -147,6 +157,10 @@ ${MENU_JUSTIFICATION_PROMPT}
 export const CONSULT_MENU_SYSTEM_PROMPT = `Ти — глибоко освічений нутриціолог-біохімік. Тренер формує меню на ОДИН день з наявних продуктів клієнта.
 
 ${NUTRITION_PROTOCOL_PROMPT}
+
+${FOOD_DATABASE_PROMPT}
+
+${FOOD_ACCURACY_RULE}
 
 ${MENU_JUSTIFICATION_PROMPT}
 
@@ -207,6 +221,8 @@ export const CHAT_SYSTEM_PROMPT = `Ти — асистент фітнес-тре
 ${FLEXIBLE_MEALS_RULE}
 
 ${EXACT_USER_SPEC_RULE}
+
+${FOOD_ACCURACY_RULE}
 
 Як працювати:
 1. Якщо користувач просить замінити продукт чи страву (наприклад "заміни авокадо") — знайди його в поточному меню клієнта (вкажи, в які дні та прийоми їжі він входить) і запропонуй 2–3 пронумеровані альтернативи зі схожою калорійністю.

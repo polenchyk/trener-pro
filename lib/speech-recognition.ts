@@ -1,5 +1,15 @@
+export interface SpeechRecognitionResultLike {
+  isFinal: boolean;
+  [index: number]: { transcript: string };
+}
+
 export interface SpeechRecognitionEventLike {
-  results: { [index: number]: { [index: number]: { transcript: string } } };
+  resultIndex: number;
+  results: SpeechRecognitionResultLike[];
+}
+
+export interface SpeechRecognitionErrorEventLike {
+  error: string;
 }
 
 export interface SpeechRecognitionLike {
@@ -7,10 +17,11 @@ export interface SpeechRecognitionLike {
   continuous: boolean;
   interimResults: boolean;
   onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
   onend: (() => void) | null;
   start: () => void;
   stop: () => void;
+  abort: () => void;
 }
 
 export function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
@@ -31,4 +42,9 @@ export function appendTranscript(current: string, transcript: string): string {
   const trimmed = transcript.trim();
   if (!trimmed) return current;
   return current ? `${current} ${trimmed}` : trimmed;
+}
+
+/** Помилки, після яких сесію диктування можна продовжити */
+export function isRecoverableSpeechError(error: string): boolean {
+  return error === "no-speech" || error === "aborted" || error === "network";
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Copy,
   Check,
@@ -30,7 +30,6 @@ import { formatDayMenuForMessenger } from "@/lib/format-menu";
 import {
   computeDayTotals,
   createEmptyWeeklyMenu,
-  formatDishMacros,
   getMealsFromDay,
   hasDayMenuContent,
   normalizeDayMenu,
@@ -51,7 +50,8 @@ import {
 import AutoSpeakToggle from "./AutoSpeakToggle";
 import { TelegramIcon, ViberIcon } from "./MessengerIcons";
 import SpeechButton from "./SpeechButton";
-import VoiceInputButton from "./VoiceInputButton";
+import VoiceInputButton, { type VoiceInputHandle } from "./VoiceInputButton";
+import EditableDayMenu from "./EditableDayMenu";
 import WorkoutPlanner from "./WorkoutPlanner";
 import RecipeModal from "./RecipeModal";
 import TrainerHandbook from "./TrainerHandbook";
@@ -60,6 +60,39 @@ const MAX_CHAT_MESSAGES = 6;
 
 const EMPTY_CONSULTING_DAYS: Partial<Record<WeekDay, boolean>> = {};
 const EMPTY_PENDING_MENUS: Partial<Record<WeekDay, DayMenu>> = {};
+
+/** Легкий рендер обґрунтування: підзаголовки "###" та марковані пункти "-" */
+function renderJustification(text: string) {
+  const lines = text.split("\n");
+  return lines.map((rawLine, i) => {
+    const line = rawLine.trim();
+    if (!line) return null;
+
+    if (line.startsWith("###")) {
+      return (
+        <p key={i} className="font-semibold text-indigo-950 mt-3 first:mt-0">
+          {line.replace(/^#+\s*/, "")}
+        </p>
+      );
+    }
+
+    const bulletMatch = line.match(/^[-*•]\s+(.*)$/);
+    if (bulletMatch) {
+      return (
+        <p key={i} className="pl-3 relative before:content-['•'] before:absolute before:left-0 before:text-indigo-400">
+          {stripInlineMarkdown(bulletMatch[1])}
+        </p>
+      );
+    }
+
+    return <p key={i}>{stripInlineMarkdown(line)}</p>;
+  });
+}
+
+/** Прибирає **жирний** та зайві markdown-символи для чистого відображення */
+function stripInlineMarkdown(text: string): string {
+  return text.replace(/\*\*(.+?)\*\*/g, "$1").replace(/`(.+?)`/g, "$1");
+}
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -98,6 +131,7 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
   const [recipeDish, setRecipeDish] = useState<MenuDish | null>(null);
   const [savedConsultFlash, setSavedConsultFlash] = useState(false);
   const [handbookOpen, setHandbookOpen] = useState(false);
+  const voiceInputRef = useRef<VoiceInputHandle>(null);
 
   const isConsultingActive = Boolean(isConsultingMap[activeDay]);
   const pendingDayMenu = pendingConsultMap[activeDay];
@@ -168,6 +202,49 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
       }
       return { ...prev, [activeDay]: next };
     });
+  };
+
+  /** Ручне редагування — зберігаємо як чернетку дня */
+  const handleDayMenuEdit = (updated: DayMenu) => {
+    const normalized = normalizeDayMenu(updated);
+    setPendingConsultMenu(client.id, activeDay, normalized);
+    setConsulting(client.id, activeDay, true);
+  };
+
+  /** ШІ-команда для однієї страви (не чіпає інші прийоми) */
+  const sendDishAdjust = async (
+    mealId: string,
+    dishIndex: number,
+    instruction: string
+  ) => {
+    const currentMenu = pendingDayMenu ?? savedDayMenu;
+    if (!currentMenu) return;
+
+    const normalized = normalizeDayMenu(currentMenu);
+    const meal = normalized.meals.find((m) => m.id === mealId);
+    const dish = meal?.dishes[dishIndex];
+    if (!meal || !dish) return;
+
+    const scopedInstruction = [
+      "Змінити ТІЛЬКИ одну страву в меню. Не змінюй інші прийоми їжі та інші страви.",
+      `День: ${activeDay}`,
+      `Прийом їжі: ${meal.title} (id: ${meal.id}, order: ${meal.order})`,
+      `Поточна страва (JSON): ${JSON.stringify(dish)}`,
+      `Команда тренера: ${instruction}`,
+      "Перерахуй граммовку нового продукту за жорстким довідником продуктів (Calorizator).",
+      `Поверни updatedDays лише для «${activeDay}» з ПОВНИМ об'єктом дня.`,
+    ].join("\n");
+
+    setAdjusting(true);
+    setError(null);
+    try {
+      await sendAdjust(scopedInstruction, chatMessages);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не вдалося оновити страву.");
+      throw err;
+    } finally {
+      setAdjusting(false);
+    }
   };
 
   const sendAdjust = async (instruction: string, historyForApi: ChatMessage[]) => {
@@ -264,6 +341,8 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
   const sendChat = async () => {
     const instruction = adjustInput.trim();
     if (!instruction || adjusting) return;
+
+    voiceInputRef.current?.stopListening();
 
     const userMessage: ChatMessage = { role: "user", content: instruction };
     const historyForApi = [...chatMessages, userMessage].slice(-MAX_CHAT_MESSAGES);
@@ -514,53 +593,23 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
                     </p>
                   </div>
 
-                  {dayMeals.map((meal) => (
-                    <div
-                      key={meal.id}
-                      className="rounded-2xl border border-gray-100 px-4 py-3.5"
-                    >
-                      <p className="font-semibold text-gray-900 mb-2">
-                        {meal.label.emoji} {meal.title}
-                      </p>
-                      <ul className="space-y-2.5">
-                        {meal.dishes.map((dish, i) => (
-                          <li key={i} className="text-sm text-gray-600">
-                            <div className="flex justify-between gap-3">
-                              <span className="min-w-0">
-                                <button
-                                  type="button"
-                                  onClick={() => setRecipeDish(dish)}
-                                  className="text-teal-700 hover:underline cursor-pointer text-left inline-flex items-center gap-1 font-medium"
-                                >
-                                  {dish.title}
-                                  <span className="text-xs opacity-80" aria-hidden>
-                                    🍳
-                                  </span>
-                                </button>
-                                {" — "}
-                                {dish.portion}
-                              </span>
-                              <span className="text-gray-500 whitespace-nowrap shrink-0 font-medium">
-                                {dish.calories} ккал
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-gray-400 mt-0.5 tabular-nums">
-                              {formatDishMacros(dish)}
-                            </p>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
+                  <EditableDayMenu
+                    dayMenu={normalizedDisplayDay!}
+                    meals={dayMeals}
+                    onDayMenuChange={handleDayMenuEdit}
+                    onDishAiAdjust={sendDishAdjust}
+                    onOpenRecipe={setRecipeDish}
+                    globalAdjusting={adjusting}
+                  />
 
                   {dayJustification && (
                     <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 to-violet-50/50 px-4 py-4">
                       <h3 className="text-sm font-semibold text-indigo-950 mb-2.5">
-                        🔬 Нутриціологічний аналіз та обґрунтування дня
+                        🧑‍🏫 Обґрунтування раціону (Логіка тренера)
                       </h3>
-                      <p className="text-sm text-indigo-900/85 whitespace-pre-wrap leading-relaxed">
-                        {dayJustification}
-                      </p>
+                      <div className="text-sm text-indigo-900/85 leading-relaxed space-y-1.5">
+                        {renderJustification(dayJustification)}
+                      </div>
                     </div>
                   )}
                 </>
@@ -574,8 +623,9 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
                     : `Скласти меню на ${activeDay}`}
                 </p>
                 <p className="text-[11px] text-sky-700 mb-2 px-0.5">
-                  Напишіть продукти або коригуйте меню («додай перекус», «кава з 20 мл молока»). Коли
-                  готові — «Формуй меню».
+                  Напишіть продукти або коригуйте меню. Мікрофон: диктуйте з паузами — запис
+                  зупиниться лише кнопкою «Стоп» або «Надіслати». Страви можна правити вручну або
+                  ШІ-командою під кожною тарілкою.
                 </p>
                 {chatMessages.length > 0 && (
                   <div className="space-y-2 mb-3 max-h-48 overflow-y-auto">
@@ -629,6 +679,7 @@ export default function MenuGenerator({ client }: MenuGeneratorProps) {
                     className="flex-1 min-w-0 rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-60"
                   />
                   <VoiceInputButton
+                    ref={voiceInputRef}
                     value={adjustInput}
                     disabled={adjusting}
                     onTranscript={setAdjustInput}
